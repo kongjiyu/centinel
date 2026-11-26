@@ -361,6 +361,71 @@ function PreviewPane({
   );
 }
 
+function previewKind(artifact: Artifact): PreviewKind | null {
+  return artifactKind(artifact.fileName) ?? (['repository', 'directory'].includes(artifact.source)
+    && ['source_code', 'other'].includes(artifact.type) ? 'text' : null);
+}
+
+async function savedArtifactBytes(artifact: Artifact) {
+  const stored = await api.getArtifactContent(artifact.projectId, artifact.id, artifact.versionId);
+  if (artifact.versionId && stored.versionId !== artifact.versionId) throw new Error('The saved source version could not be verified. Refresh sources and try again.');
+  return stored.content;
+}
+
+async function loadArtifactPreview(artifact: Artifact, kind: PreviewKind) {
+  const saved = await savedArtifactBytes(artifact);
+  if (kind !== 'text') return `data:${mimeType(artifact.fileName)};base64,${saved}`;
+  const content = new TextDecoder('utf-8', { fatal: true }).decode(Uint8Array.from(atob(saved), char => char.charCodeAt(0)));
+  if (/[\u0000-\u0008\u000b\u000e-\u001f\u007f]/.test(content)) throw new Error('This file is not readable UTF-8 text.');
+  return content;
+}
+
+export function ArtifactPreviewDialog({ artifact, onClose }: { artifact: Artifact; onClose: () => void }) {
+  const kind = previewKind(artifact);
+  const [attempt, setAttempt] = useState(0);
+  const [mode, setMode] = useState<MarkdownMode>('preview');
+  const [preview, setPreview] = useState<PreviewState | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState('');
+  const name = artifact.fileName.split(/[\\/]/).at(-1) || 'Saved file';
+  useEffect(() => {
+    if (!kind) return;
+    let current = true;
+    setPreview({ artifact, kind, content: null, error: null, loading: true });
+    void loadArtifactPreview(artifact, kind).then(content => {
+      if (current) setPreview({ artifact, kind, content, error: null, loading: false });
+    }, cause => {
+      if (current) setPreview({ artifact, kind, content: null, error: userFacingError(cause, 'The saved file could not be opened.'), loading: false });
+    });
+    return () => { current = false; };
+  }, [artifact, attempt, kind]);
+  const download = async () => {
+    setDownloading(true);
+    setDownloadError('');
+    try {
+      const saved = await savedArtifactBytes(artifact);
+      const bytes = Uint8Array.from(atob(saved), char => char.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes], { type: 'application/octet-stream' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = name;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch { setDownloadError('The saved file could not be downloaded. Try again.'); }
+    finally { setDownloading(false); }
+  };
+  return <Modal isOpen appBackdrop width={860} title={name} onClose={onClose}>
+    <div className="ck-library-file-preview">
+      {kind ? <PreviewPane preview={preview} markdownMode={mode} onMarkdownModeChange={setMode} onRetry={() => setAttempt(value => value + 1)} />
+        : <p>Download this file to open it in its associated app.</p>}
+      {(!kind || preview?.error) && <button type="button" className="ck-button" disabled={downloading} onClick={() => void download()}>
+        {downloading ? 'Downloading…' : 'Download file'}
+      </button>}
+      {downloadError && <p role="status">{downloadError}</p>}
+    </div>
+  </Modal>;
+}
+
 export function ArtifactsPanel({ projectId, onOpenSettings, initialView = 'sources', sourceArtifactId }: Props) {
   const openedSourceLink = useRef<string | null>(null);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
@@ -543,17 +608,12 @@ export function ArtifactsPanel({ projectId, onOpenSettings, initialView = 'sourc
 
   const openPreview = useCallback(async (artifact: Artifact) => {
     const request = ++previewRequestRef.current;
-    const kind = artifactKind(artifact.fileName) ?? (['repository', 'directory'].includes(artifact.source)
-      && ['source_code', 'other'].includes(artifact.type) ? 'text' : null);
+    const kind = previewKind(artifact);
     setPreview({ artifact, kind, content: null, error: null, loading: Boolean(kind) });
     if (!kind) return;
     try {
-      const stored = await api.getArtifactContent(artifact.projectId, artifact.id, artifact.versionId);
+      const content = await loadArtifactPreview(artifact, kind);
       if (previewRequestRef.current !== request) return;
-      if (artifact.versionId && stored.versionId !== artifact.versionId) throw new Error('The saved source version could not be verified. Refresh sources and try again.');
-      const bytes = kind === 'text' ? Uint8Array.from(atob(stored.content), character => character.charCodeAt(0)) : null;
-      const content = kind === 'text' ? new TextDecoder('utf-8', { fatal: true }).decode(bytes!) : `data:${mimeType(artifact.fileName)};base64,${stored.content}`;
-      if (kind === 'text' && /[\u0000-\u0008\u000b\u000e-\u001f\u007f]/.test(content)) throw new Error('This file is not readable UTF-8 text.');
       setPreview(current => current?.artifact.id === artifact.id ? { ...current, content, loading: false } : current);
     } catch (cause) {
       if (previewRequestRef.current !== request) return;

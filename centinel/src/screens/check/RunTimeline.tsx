@@ -26,6 +26,10 @@ export function stepSentence(step: RunStep, stopped = false): string {
       case 'navigate': return 'Tried to open a page';
       case 'upload_file': return 'Tried to upload a test file';
       case 'download_file': return 'Tried to download a file';
+      case 'scroll': return 'Tried to scroll the page';
+      case 'wait': return 'Tried to wait for the page';
+      case 'assert_visible': return 'Tried to look for text on the page';
+      case 'observe_visual': return 'Tried to inspect the screen';
       default: break;
     }
   }
@@ -80,16 +84,18 @@ export function useRunTimeline(projectId: string, runId: string) {
 /** Every screenshot of a run, in step order, ending with the page the check saw. */
 export function runPhotos(projectId: string, runId: string, timeline: Timeline | null): Photo[] {
   if (!timeline) return [];
+  const stopped = stoppedAt(timeline.steps) >= 0 || ['blocked', 'cancelled'].includes(timeline.state);
   const photos: Photo[] = timeline.steps.flatMap((step, index) => step.screenshot ? [{
     key: `step:${step.step}`, title: `Before step ${index + 1} · ${stepSentence(step)}`, detail: step.page ? `On ${step.page === '/' ? 'the first page' : step.page}` : null,
     load: () => api.dynamicRunStepScreenshot(projectId, runId, step.step),
   }] : []);
-  if (timeline.finalScreenshot) photos.push({ key: 'final', title: 'The page when the test was checked', detail: null, load: () => api.dynamicRunStepScreenshot(projectId, runId, 'final') });
+  if (timeline.finalScreenshot) photos.push({ key: 'final', title: stopped ? 'The last page the browser saw' : 'The page when the test was checked', detail: null, load: () => api.dynamicRunStepScreenshot(projectId, runId, 'final') });
   return photos;
 }
 
-export function RunTimeline({ projectId, runId, checkFailed, checkSummary, shownReason }: {
+export function RunTimeline({ projectId, runId, checkFailed, checkSummary, shownReason, activity = false }: {
   projectId: string; runId: string;
+  activity?: boolean;
   /** A reason already shown above the steps; the stopped step does not repeat it. */
   shownReason?: string | null;
   /** The test's own check failed after its steps (a proven problem). */
@@ -103,10 +109,13 @@ export function RunTimeline({ projectId, runId, checkFailed, checkSummary, shown
 
   if (error) return <p className="ck-col-note">{error}</p>;
   if (!timeline) return <p className="ck-col-note"><Icon icon={LoaderCircle} className="ci-spin" />Loading the steps…</p>;
-  if (!timeline.steps.length) return <p className="ck-col-note">No steps were saved for this test.</p>;
+  if (!timeline.steps.length && (!activity || !timeline.finalScreenshot)) return <p className="ck-col-note">No steps were saved for this test.</p>;
   const steps = timeline.steps;
   const stop = stoppedAt(steps);
   const failedCheck = stop < 0 && (checkFailed || timeline.verdict === 'failed');
+  const visibleSteps = activity ? steps.slice(0, stop < 0 ? undefined : stop + 1)
+    .map((step, index) => ({ step, index })).filter(({ step }) => !step.action.startsWith('finish_'))
+    : steps.map((step, index) => ({ step, index }));
   const open = (key: string) => { const index = photos.findIndex(photo => photo.key === key); if (index >= 0) setViewing(index); };
   const plural = (count: number) => `${count} step${count === 1 ? '' : 's'}`;
   const summary = stop >= 0 ? `${plural(steps.length)} · stopped at step ${stop + 1}`
@@ -114,9 +123,9 @@ export function RunTimeline({ projectId, runId, checkFailed, checkSummary, shown
 
   return (
     <div className="ck-tl">
-      <p className="ck-tl-summary">{summary}</p>
+      {!activity && <p className="ck-tl-summary">{summary}</p>}
       <ol className="ck-tl-list" aria-label="Steps">
-        {steps.map((step, index) => {
+        {visibleSteps.map(({ step, index }) => {
           const state = index === stop ? 'stopped' : stop >= 0 && index > stop ? 'skipped' : 'done';
           const showPage = !!step.page && step.page !== steps[index - 1]?.page;
           return (
@@ -131,13 +140,14 @@ export function RunTimeline({ projectId, runId, checkFailed, checkSummary, shown
                   </span>
                   {state === 'stopped' && <span className="ck-tl-tag">Stopped here</span>}
                   {step.screenshot && <ShotButton label={`Screenshot before step ${index + 1}`} onClick={() => open(`step:${step.step}`)} />}
+                  {state === 'stopped' && timeline.finalScreenshot && <ShotButton label="Screenshot of the last page the browser saw" onClick={() => open('final')} />}
                 </div>
                 {state === 'stopped' && (() => { const why = plainReason(step.error ?? timeline.reason); return why && why !== shownReason ? <p className="ck-tl-reason">{why}</p> : null; })()}
               </div>
             </li>
           );
         })}
-        {failedCheck && (
+        {failedCheck && !activity && (
           <li className="ck-tl-step is-stopped">
             <span className="ck-tl-marker" aria-hidden="true"><Icon icon={X} /></span>
             <div className="ck-tl-body">
@@ -151,6 +161,9 @@ export function RunTimeline({ projectId, runId, checkFailed, checkSummary, shown
           </li>
         )}
       </ol>
+      {activity && timeline.finalScreenshot && <button type="button" className="ck-button is-small" onClick={() => open('final')}>
+        <Icon icon={Image} />Captured final screenshot
+      </button>}
       {timeline.truncated && <p className="ck-tl-summary">Only the first 60 steps are shown.</p>}
       {viewing !== null && <PhotoViewer photos={photos} index={viewing} onIndex={setViewing} onClose={() => setViewing(null)} />}
     </div>

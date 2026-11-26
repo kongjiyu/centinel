@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import type { ReactNode } from 'react';
 
@@ -12,10 +13,11 @@ type Props = {
   descriptionId?: string;
   width?: number;
   overlayClassName?: string;
+  appBackdrop?: boolean;
   children: React.ReactNode;
 };
 
-export function Modal({ isOpen, onClose, title, footer, headerAside, headerContent, descriptionId, width = 520, overlayClassName, children }: Props) {
+export function Modal({ isOpen, onClose, title, footer, headerAside, headerContent, descriptionId, width = 520, overlayClassName, appBackdrop, children }: Props) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   const titleId = useId();
@@ -69,8 +71,8 @@ export function Modal({ isOpen, onClose, title, footer, headerAside, headerConte
 
   if (!isOpen) return null;
 
-  return (
-    <div className={['modal-overlay', overlayClassName].filter(Boolean).join(' ')} onClick={event => { if (event.target === event.currentTarget) onCloseRef.current(); }}>
+  const overlay = (
+    <div className={['modal-overlay', appBackdrop && 'modal-overlay-app-blur', overlayClassName].filter(Boolean).join(' ')} onClick={event => { if (event.target === event.currentTarget) onCloseRef.current(); }}>
       <div
         ref={dialogRef}
         className="modal"
@@ -99,4 +101,5 @@ export function Modal({ isOpen, onClose, title, footer, headerAside, headerConte
       </div>
     </div>
   );
+  return appBackdrop ? createPortal(overlay, document.body) : overlay;
 }

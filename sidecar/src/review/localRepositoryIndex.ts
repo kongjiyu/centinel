@@ -13,7 +13,7 @@ import type { RetrievedContext } from './contextTypes.js';
 import { openCodebaseIndex, INDEX_RELATIVE_DIRECTORY, portableIndexFiles } from './openCodebaseIndex.js';
 import { openRepositoryEmbeddingBridge } from './repositoryEmbeddingBridge.js';
 import { downloadRepositorySnapshot, encodeRepositorySnapshot, repositoryIndexIdentity, restoreRepositorySnapshot,
-  DEFAULT_REPOSITORY_INDEX_CACHE_ROOT, type RepositoryIndexIdentity } from './repositoryIndexSnapshot.js';
+  DEFAULT_REPOSITORY_INDEX_CACHE_ROOT, MAX_REPOSITORY_INDEX_SOURCES, type RepositoryIndexIdentity } from './repositoryIndexSnapshot.js';
 import { publishRepositoryIndex, readPreparedRepositorySnapshot } from './repositoryIndexSync.js';
 import { assertSourceIndexProviderAllowed, SourceIndexStopped } from './sourceIndexJobs.js';
 
@@ -52,6 +52,10 @@ async function describe(clientSource: ClientSource, ownerId: string, projectId: 
   const client = currentClient(clientSource);
   await new CentinelApplicationRepository(client, ownerId).requireProjectMember(projectId, signal);
   if (!/^[a-f\d-]{36}$/i.test(ownerId)) throw new Error('An authenticated owner UUID is required for the local index.');
+  if (artifacts.length > MAX_REPOSITORY_INDEX_SOURCES) {
+    throw new ApplicationRepositoryError(`Source search supports up to ${MAX_REPOSITORY_INDEX_SOURCES.toLocaleString('en-US')} saved files per index. Select a narrower Review scope.`,
+      'repository_index_scope_too_large', 422);
+  }
   const sources: SourceMetadata[] = [];
   const usedPaths = new Set<string>();
   for (const artifact of artifacts) {

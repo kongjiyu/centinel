@@ -16,8 +16,8 @@ vi.mock('@tauri-apps/api/dialog', () => ({ save: vi.fn() }));
 vi.mock('@tauri-apps/api/fs', () => ({ writeTextFile: vi.fn() }));
 
 vi.mock('../../api/client', () => ({ api: {
-  autoTests: vi.fn(), getConnectedSourceStatus: vi.fn().mockResolvedValue({ connected: true, sources: [] }), autoTest: vi.fn(), listArtifacts: vi.fn(), listStaticSessions: vi.fn(), listStaticFindings: vi.fn(),
-  listRequirements: vi.fn(), getStaticSession: vi.fn(), getReviewHarness: vi.fn(), conversationRequests: vi.fn(),
+  autoTests: vi.fn(), getConnectedSourceStatus: vi.fn().mockResolvedValue({ connected: true, sources: [] }), autoTest: vi.fn(), listArtifacts: vi.fn(), getArtifactContent: vi.fn(), listStaticSessions: vi.fn(), listStaticFindings: vi.fn(),
+  listRequirements: vi.fn(), listConnectedSources: vi.fn(), getStaticSession: vi.fn(), getReviewHarness: vi.fn(), conversationRequests: vi.fn(),
   sendConversationRequest: vi.fn(), conversationRequest: vi.fn(), confirmConversationRequest: vi.fn(), answerConversationQuestion: vi.fn(), startAutoTest: vi.fn(), exportProjectReport: vi.fn(), getReviewTraceability: vi.fn(),
 } }));
 const project: Project = { id: '11111111-1111-4111-8111-111111111111', name: 'Sample shop', description: '', workspacePath: '/shop', createdAt: '', updatedAt: '' };
@@ -36,6 +36,10 @@ function Workspace() {
   return route.name === 'check' ? <>{openCheck}<CheckScreen checkId={route.checkId} projects={[project]} onNavigate={navigate} /></>
     : <>{openCheck}<ProjectConversationScreen project={project} projects={[project]} onNavigate={navigate} /></>;
 }
+async function returnToConversation(user: ReturnType<typeof userEvent.setup>) {
+  const back = await screen.findByRole('button', { name: 'Back to the conversation' });
+  await user.click(back);
+}
 beforeEach(() => {
   vi.resetAllMocks(); resetCheckStore(); localStorage.clear(); sessionStorage.clear();
   vi.mocked(api.getConnectedSourceStatus).mockResolvedValue({ connected: true, sources: [] } as never);
@@ -45,6 +49,7 @@ beforeEach(() => {
     createdAt: '2026-11-18T01:00:00Z', updatedAt: '2026-11-18T01:10:00Z' } as StaticSession;
   vi.mocked(api.autoTests).mockResolvedValue([]);
   vi.mocked(api.listArtifacts).mockResolvedValue([]);
+  vi.mocked(api.listConnectedSources).mockResolvedValue([]);
   vi.mocked(api.listRequirements).mockResolvedValue([]);
   vi.mocked(api.getReviewTraceability).mockResolvedValue({ sessionId: reviewId, projectId: project.id, status: 'available',
     records: [{ requirementId: 'req-1', title: 'Only owners can read orders', description: '', category: '', state: 'complete',
@@ -61,9 +66,32 @@ beforeEach(() => {
     createdAt: review.createdAt, updatedAt: review.updatedAt, mode: 'code', phase: 'done', documents: [], focus: 'Review orders', notes: [] });
 });
 
+it('opens an attached saved Check without a device-local Check index entry', async () => {
+  const historicalReviewId = '44444444-4444-4444-8444-444444444444';
+  const historical = { id: historicalReviewId, projectId: project.id, name: 'Earlier catalogue review', status: 'completed',
+    progressJson: '{}', createdAt: '2026-11-17T01:00:00Z', updatedAt: '2026-11-17T01:10:00Z' } as StaticSession;
+  vi.mocked(api.getStaticSession).mockImplementation(async (_project, id) => id === historicalReviewId ? historical : {
+    ...historical, id: reviewId, name: 'Checkout review',
+  });
+  const id = '55555555-5555-4555-8555-555555555555';
+  const request = accepted({ id, text: 'Explain the attached Check', mode: 'code', permission: 'auto',
+    references: [{ reviewId: historicalReviewId }] });
+  vi.mocked(api.conversationRequests).mockResolvedValue([{ ...request, action: 'explain', state: 'completed',
+    explanation: { hasMore: false, sections: [{ evidenceId: `review:${historicalReviewId}`, presentation: 'check',
+      title: historical.name, check: { mode: 'code', code: { status: 'completed', problemCount: 0 } } }] } }]);
+  const user = userEvent.setup();
+  render(<Workspace />);
+  await returnToConversation(user);
+  const saved = await screen.findByRole('region', { name: `Check ${historical.name}` });
+  await user.click(within(saved).getByRole('button', { name: /open/i }));
+  await waitFor(() => expect(api.getStaticSession).toHaveBeenCalledWith(project.id, historicalReviewId));
+  expect(screen.getByRole('button', { name: 'Back to the conversation' })).toBeInTheDocument();
+});
+
 it('opens a saved card, keeps the result while typing, attaches a problem and returns after acknowledged Send', async () => {
   const user = userEvent.setup();
   render(<Workspace />);
+  await returnToConversation(user);
   const card = within(await screen.findByRole('region', { name: 'Check Order Access' }));
   expect(card.getByText('Code', { exact: true })).toBeInTheDocument();
   expect(card.getByText('Found in code')).toBeInTheDocument();
@@ -106,6 +134,7 @@ it('recovers an accepted message after a lost acknowledgement and restart withou
   vi.mocked(api.sendConversationRequest).mockRejectedValueOnce(new Error('Connection lost'));
   const user = userEvent.setup();
   const view = render(<Workspace />);
+  await returnToConversation(user);
   const prompt = screen.getByRole('textbox', { name: 'Message to ORIN' });
   await user.type(prompt, 'What is this project called?');
   await user.click(screen.getByRole('button', { name: 'Send' }));
@@ -118,72 +147,104 @@ it('recovers an accepted message after a lost acknowledgement and restart withou
   sessionStorage.setItem('centinel:supabase-user-id', testOwner());
   vi.mocked(api.conversationRequest).mockResolvedValue({ ...accepted(input), state: 'completed', reply: 'Sample shop.' });
   render(<Workspace />);
+  await returnToConversation(user);
   expect(await screen.findByText('Sample shop.')).toBeInTheDocument();
   expect(screen.getByRole('textbox', { name: 'Message to ORIN' })).toHaveValue('');
   expect(api.conversationRequest).toHaveBeenCalledWith(projectId, input.id);
   expect(api.sendConversationRequest).toHaveBeenCalledOnce();
 });
 
-it('restores an unsent project draft only for its original account after session storage resets', () => {
+it('restores an unsent project draft only for its original account after session storage resets', async () => {
   writeConversationDraft(project.id, { text: 'Explain this problem', checkIds: [], problems: [{ label: 'Order ownership', reference: { reviewId, findingId } }] });
   sessionStorage.clear();
   sessionStorage.setItem('centinel:supabase-user-id', 'another-owner');
   expect(readConversationDraft(project.id).text).toBe('');
   sessionStorage.setItem('centinel:supabase-user-id', testOwner());
+  const user = userEvent.setup();
   render(<Workspace />);
+  await returnToConversation(user);
   expect(screen.getByRole('textbox', { name: 'Message to ORIN' })).toHaveValue('Explain this problem');
   expect(screen.getByRole('button', { name: 'Remove problem Order ownership' })).toBeInTheDocument();
 });
 
-it('opens a saved choice at the top and adds it to the turn only after saving the answer', async () => {
+it('keeps a saved question above the composer and adds the answer only after saving it', async () => {
+  const question = { id: 'question-1', createdAt: '2026-11-18T02:00:00Z',
+    text: 'Which verification should I run?', options: ['Code review only', 'Code and browser'] };
   const legacy = { ...accepted({ id: 'older-question', text: 'Can you verify the result?', mode: 'both', permission: 'ask', references: [] }),
-    state: 'completed', action: 'clarify', reply: 'Which verification should I run: **Code review only**, or **Code and browser** verification?' } as const;
+    state: 'completed' as const, action: 'clarify' as const, reply: question.text, questionOptions: [...question.options], pendingQuestionId: question.id, questions: [question] };
+  const answered = { ...legacy, selectedOption: 1, revision: 2, pendingQuestionId: undefined,
+    questions: [{ ...question, answer: { kind: 'option' as const, text: 'Code and browser', selectedOption: 1, automatic: false, answeredAt: '2026-11-18T02:01:00Z' } }] };
   vi.mocked(api.conversationRequests).mockResolvedValue([legacy]);
-  vi.mocked(api.answerConversationQuestion).mockRejectedValueOnce(new Error('offline')).mockResolvedValue({ ...legacy, selectedOption: 1, revision: 2 });
+  vi.mocked(api.answerConversationQuestion).mockRejectedValueOnce(new Error('offline')).mockResolvedValue(answered);
   const user = userEvent.setup();
   render(<Workspace />);
+  await returnToConversation(user);
   const card = await screen.findByRole('region', { name: 'ORIN has a question' });
   expect(card.closest('.pc-thread')).toBeNull();
   expect(screen.queryByRole('dialog')).toBeNull();
   const composer = screen.getByRole('textbox', { name: 'Message to ORIN' });
   await user.type(composer, 'Draft while answering');
   expect(composer).toHaveValue('Draft while answering');
-  expect(screen.queryByText('Question', { exact: true })).toBeNull();
-  await user.click(within(card).getByRole('button', { name: 'Answer later' }));
-  expect(screen.queryByRole('region', { name: 'ORIN has a question' })).toBeNull();
-  await user.click(screen.getByRole('button', { name: 'Answer ORIN’s question' }));
-  await user.click(screen.getByRole('button', { name: 'Code and browser' }));
+  await user.click(within(card).getByRole('radio', { name: /Code and browser/ }));
+  await user.click(within(card).getByRole('button', { name: 'Send answer' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('The answer could not be saved.');
   expect(screen.queryByText('You selected')).toBeNull();
-  await user.click(screen.getByRole('button', { name: 'Code and browser' }));
+  await user.click(within(card).getByRole('button', { name: 'Send answer' }));
   expect(await screen.findByText('You selected')).toBeInTheDocument();
   expect(screen.queryByRole('region', { name: 'ORIN has a question' })).toBeNull();
   expect(screen.getByText('Question', { exact: true })).toBeInTheDocument();
-  expect(api.answerConversationQuestion).toHaveBeenLastCalledWith(project.id, legacy.id, legacy.revision, 1, false);
+  expect(api.answerConversationQuestion).toHaveBeenLastCalledWith(project.id, legacy.id, {
+    revision: legacy.revision, questionId: question.id, answer: { kind: 'option', selectedOption: 1 }, askFirst: false,
+  });
   expect(api.confirmConversationRequest).not.toHaveBeenCalled();
 });
 
-it('opens a response failure at the top with a next step and can reopen it from the turn', async () => {
+it('keeps a safe response failure and its next step in the originating turn', async () => {
   const failed = { ...accepted({ id: 'validation-error', text: 'Proceed with Code only first', mode: 'code', permission: 'ask', references: [] }),
     createdAt: '2026-11-23T02:00:00Z', state: 'failed', failureStage: 'validation', error: 'Internal diagnostic text' } as const;
   vi.mocked(api.conversationRequests).mockResolvedValue([failed]);
   const user = userEvent.setup();
   render(<Workspace />);
-  const card = await screen.findByRole('region', { name: 'ORIN could not verify its response' });
-  expect(card.closest('.pc-thread')).toBeNull();
+  await returnToConversation(user);
+  const heading = await screen.findByText('ORIN could not verify its response.');
+  const inline = heading.closest<HTMLElement>('[role="status"]')!;
+  expect(inline.closest('.pc-turn')).toHaveTextContent('Proceed with Code only first');
+  expect(inline.closest('.pc-thread')).not.toBeNull();
   expect(screen.queryByRole('dialog')).toBeNull();
-  expect(within(card).getByText('What to do next')).toBeInTheDocument();
-  expect(within(card).getByText(/specific check that failed is unavailable/i)).toBeInTheDocument();
-  expect(within(card).getByText(/select Code and name the exact folder/i)).toBeInTheDocument();
+  expect(inline).toHaveTextContent(/specific check that failed is unavailable/i);
+  expect(inline).toHaveTextContent(/select Code and name the exact folder/i);
   expect(screen.queryByText('Internal diagnostic text')).toBeNull();
   const composer = screen.getByRole('textbox', { name: 'Message to ORIN' });
   await user.type(composer, 'Review src/automation');
   expect(composer).toHaveValue('Review src/automation');
-  await user.click(within(card).getByRole('button', { name: 'Dismiss error' }));
-  expect(screen.queryByRole('region', { name: 'ORIN could not verify its response' })).toBeNull();
-  await user.click(screen.getByRole('button', { name: 'View response error' }));
-  expect(screen.getByRole('region', { name: 'ORIN could not verify its response' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'View response error' })).toBeNull();
   expect(api.sendConversationRequest).not.toHaveBeenCalled();
+});
+
+it('lists a PDF by filename and attaches it through @ for an explanation in Browser mode', async () => {
+  vi.mocked(api.listArtifacts).mockResolvedValue([{ id: 'report', projectId: project.id, type: 'other', source: 'documents',
+    fileName: 'report.pdf', filePath: 'uploads/report.pdf', originalPath: null, contentHash: 'fixture', createdAt: '2026-11-23T02:00:00Z' }]);
+  vi.mocked(api.sendConversationRequest).mockImplementation(async (_projectId, input) => accepted(input));
+  const user = userEvent.setup();
+  render(<Workspace />);
+  await returnToConversation(user);
+  await user.click(screen.getByRole('button', { name: `Project sources for ${project.name}` }));
+  vi.mocked(api.getArtifactContent).mockResolvedValue({ versionId: 'v1', content: btoa('%PDF-fixture'), contentHash: 'fixture', mimeType: 'application/pdf' });
+  await user.click(await within(screen.getByRole('region', { name: 'Library' })).findByRole('button', { name: 'Open report.pdf' }));
+  const preview = await screen.findByRole('dialog', { name: 'report.pdf' });
+  expect(await within(preview).findByTitle('Preview of report.pdf')).toHaveAttribute('src', expect.stringMatching(/^data:application\/pdf;base64,/));
+  expect(api.getArtifactContent).toHaveBeenCalledWith(project.id, 'report', undefined);
+  expect(screen.queryByText('uploads', { exact: true })).toBeNull();
+  await user.click(within(preview).getByRole('button', { name: 'Close dialog' }));
+  await user.click(screen.getByRole('combobox', { name: 'Check mode' }));
+  await user.click(screen.getByRole('option', { name: 'Browser' }));
+  const composer = screen.getByRole('textbox', { name: 'Message to ORIN' });
+  await user.type(composer, 'Explain @report.pdf');
+  await user.click(await screen.findByRole('button', { name: 'report.pdf' }));
+  expect(within(screen.getByRole('list', { name: 'Draft attachments' })).getByText('PDF')).toBeInTheDocument();
+  await user.keyboard('{Enter}');
+  await waitFor(() => expect(api.sendConversationRequest).toHaveBeenCalledWith(project.id,
+    expect.objectContaining({ mode: 'browser', references: [expect.objectContaining({ artifactId: 'report' })] })));
 });
 
 it('shows the original choice and the Review approval after continuing a saved Code answer', async () => {
@@ -198,11 +259,14 @@ it('shows the original choice and the Review approval after continuing a saved C
   vi.mocked(api.confirmConversationRequest).mockResolvedValue({ ...waiting, questionOptions: [...waiting.questionOptions], revision: 3, state: 'running' });
   const user = userEvent.setup();
   render(<Workspace />);
+  await returnToConversation(user);
   await user.click(await screen.findByRole('button', { name: 'Continue Code Review' }));
   expect(await screen.findByText('Review Cypress files.')).toBeInTheDocument();
   expect(screen.getByText(question)).toBeInTheDocument();
   expect(screen.getByText('You selected')).toBeInTheDocument();
-  expect(api.answerConversationQuestion).toHaveBeenCalledWith(project.id, saved.id, saved.revision, 0, false);
+  expect(api.answerConversationQuestion).toHaveBeenCalledWith(project.id, saved.id, {
+    revision: saved.revision, questionId: saved.id, answer: { kind: 'option', selectedOption: 0 }, askFirst: false,
+  });
   await user.click(screen.getByRole('button', { name: 'Run this scope' }));
   expect(api.confirmConversationRequest).toHaveBeenCalledWith(project.id, waiting.id, waiting.revision);
 });
@@ -216,6 +280,7 @@ it.each(['proceed', 'proceed with Code only first'])('switches Browser to Code a
   vi.mocked(api.confirmConversationRequest).mockImplementation(async () => ({ ...scope, state: 'running', revision: 6 }));
   const user = userEvent.setup();
   render(<Workspace />);
+  await returnToConversation(user);
   const prompt = screen.getByRole('textbox', { name: 'Message to ORIN' });
   const mode = screen.getByRole('combobox', { name: 'Check mode' });
   expect(mode).toHaveTextContent('Browser');
@@ -241,6 +306,7 @@ it('keeps a waiting Browser plan untouched when the user asks to proceed with Co
   vi.mocked(api.conversationRequests).mockResolvedValue([waiting]);
   const user = userEvent.setup();
   render(<Workspace />);
+  await returnToConversation(user);
   await screen.findByText('Browser scope ready.');
   const prompt = screen.getByRole('textbox', { name: 'Message to ORIN' });
   await user.type(prompt, 'Proceed with Code only first{Enter}');
@@ -262,6 +328,7 @@ it('tracks and approves a newly submitted Review by ID when history is unavailab
   vi.mocked(api.confirmConversationRequest).mockImplementation(async () => ({ ...saved, state: 'running', revision: 6 }));
   const user = userEvent.setup();
   render(<Workspace />);
+  await returnToConversation(user);
   await screen.findByText(/Conversation history is temporarily unavailable/);
   const prompt = screen.getByRole('textbox', { name: 'Message to ORIN' });
   await user.type(prompt, 'proceed a review on automation module{Enter}');
@@ -279,6 +346,7 @@ it('restores each draft when switching checks and posts only the sent draft to t
   vi.mocked(api.sendConversationRequest).mockImplementation(async (_, input) => accepted(input));
   const user = userEvent.setup();
   render(<Workspace />);
+  await returnToConversation(user);
   await user.type(screen.getByRole('textbox', { name: 'Message to ORIN' }), 'My project draft');
   await user.click(within(screen.getByRole('region', { name: 'Check Order Access' })).getByRole('button', { name: 'View' }));
   await user.click(screen.getByRole('button', { name: 'Open Order Access' }));
@@ -307,7 +375,9 @@ it('restores each draft when switching checks and posts only the sent draft to t
 });
 it('uses frozen requirements and displays unavailable evidence without a fabricated zero', async () => {
   vi.mocked(api.getReviewTraceability).mockRejectedValue(new Error('snapshot unavailable'));
+  const user = userEvent.setup();
   render(<Workspace />);
+  await returnToConversation(user);
   const card = within(screen.getByRole('region', { name: 'Check Order Access' }));
   expect(await card.findByText('Requirements unavailable')).toBeInTheDocument();
   expect(api.getReviewTraceability).toHaveBeenCalledWith(project.id, reviewId);
@@ -331,6 +401,7 @@ it('opens coverage gaps and exports the exact browser-only card as a saved Markd
   try {
     const user = userEvent.setup();
     render(<Workspace />);
+    await returnToConversation(user);
     const card = within(screen.getByRole('region', { name: 'Check Catalog Filters' }));
     const gaps = await card.findByRole('button', { name: '1 unchecked' });
     const exportButton = await card.findByRole('button', { name: 'Export' });
@@ -363,6 +434,7 @@ it('retains a newer draft typed while a previous send is awaiting acknowledgemen
   vi.mocked(api.sendConversationRequest).mockImplementation((_, input) => new Promise(resolve => { acknowledge = () => resolve(accepted(input)); }));
   const user = userEvent.setup();
   render(<Workspace />);
+  await returnToConversation(user);
   await user.click(within(screen.getByRole('region', { name: 'Check Order Access' })).getByRole('button', { name: 'View' }));
   await user.click(screen.getByRole('button', { name: 'Open Order Access' }));
   const prompt = screen.getByRole('textbox', { name: 'Follow-up check' });
@@ -380,8 +452,9 @@ it('retains a newer draft typed while a previous send is awaiting acknowledgemen
 it('asks about a problem from the expanded panel and attaches it to the project message', async () => {
   const user = userEvent.setup();
   render(<Workspace />);
-  await user.click(within(await screen.findByRole('region', { name: 'Check Order Access' })).getByRole('button', { name: 'View' }));
-  const panel = within(screen.getByRole('complementary', { name: 'What ORIN knows' }));
+  const panelElement = screen.getByRole('complementary', { name: 'What ORIN knows' });
+  const panel = within(panelElement);
+  expect(panelElement).toHaveClass('is-open');
   await user.click(await panel.findByText('Order ownership check is missing'));
   await user.click(panel.getByRole('button', { name: 'Ask about this problem' }));
   expect(await screen.findByRole('button', { name: 'Remove problem Order ownership check is missing' })).toBeInTheDocument();

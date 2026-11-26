@@ -1,33 +1,34 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
-import { ArrowUp, Clock, ChevronDown, ExternalLink, FileText, Folder, History, Search, Maximize2, Minimize2, Plus, Reply, SquareChartGantt, X } from 'lucide-react';
-import { invoke } from '@tauri-apps/api/tauri';
+import { ArrowUp, Clock, ChevronDown, FileText, Folder, GitBranch, History, Search, Maximize2, Minimize2, Plus, Reply, SquareChartGantt, X } from 'lucide-react';
 import { api } from '../../api/client';
 import { problemCountTone, ProblemCountIcon } from '../../components/ProblemCountIcon';
 import { OverflowText } from '../../components/OverflowText';
 import { Icon } from '../../components/Icon';
 import { Select } from '../../components/Select';
 import { ProjectCreateModal } from '../../components/ProjectCreateModal';
-import { useImportSources } from '../../components/RecentProjectDetails';
+import { ArtifactPreviewDialog } from '../../components/ArtifactsPanel';
 import { getCheck, saveCheck, useChecks } from '../../check/store';
 import { checkName } from '../../check/checkName';
 import { CHECK_MODES, type CheckDocument, type CheckMode, type CheckRecord, type StartCheckInput } from '../../check/types';
 import { startCheck } from '../../check/runner';
 import { projectLocalFolder } from '../../check/projectWorkspace';
 import { addNote, looksLikeAccount, setMode as savePermission, updatePrefs, useProjectPrefs, type PermissionMode } from '../../check/projectPrefs';
-import type { Project, Screen } from '../../types';
+import type { Artifact, Project, Screen } from '../../types';
 import { CheckPermission } from './CheckPermission';
 import { attachCheckDocuments, CheckDocumentInput, PageDocumentDropIndicator, usePageDocumentDrop, type CheckDocumentBatch } from './CheckDocumentPicker';
 import { CheckAddOptions, SourceActions } from './CheckAddOptions';
 import { animateComposerArrival } from './composerTransition';
-import { CheckAddSource, CheckLibraryGroups, CheckLibraryList, type CheckLibrary, type CheckSourceChoice } from './CheckSourceLibrary';
+import { CheckAddSource, CheckLibraryGroups, CheckLibraryList, githubDestination, LibrarySourceRow, type CheckLibrary, type CheckSourceChoice } from './CheckSourceLibrary';
 import { handleComposerEnter } from './composerKeys';
 import { findCheckMention } from './checkMention';
 import { rankMentionChecks, rankMentionProjects, useMentionSelection } from './checkMentionSelection';
 import { CheckAttachmentCount } from './CheckAttachmentCount';
 import { CheckComposerNotices } from './CheckComposerNotices';
-import { acknowledgeConversationDraft, asksForUnscopedReview, checkReference, conversationApproval, draftContentSignature, namedReviewScope, readConversationDraft, recoverConversationRequest, rememberAcknowledgedRequest, requestsCheckExecution, sendConversationDraft, writeConversationDraft, type ProblemAttachment } from '../../check/conversation';
+import { acknowledgeConversationDraft, asksForProjectStatus, checkReference, conversationApproval, draftContentSignature, loadConversationReplySource, mentionedCheckCandidates, namedReviewScope, readConversationDraft, recoverConversationRequest, rememberAcknowledgedRequest, requestsFullCheck, sendConversationDraft, writeConversationDraft, type ProblemAttachment } from '../../check/conversation';
 import type { ConversationRequest } from '../../check/conversationTypes';
 import { useProblemMentions } from '../../check/problemMentions';
+import { ConversationAttachment } from './ConversationAttachment';
+import { ConversationQuotePreview } from './ConversationQuotePreview';
 import { rememberCheckTransition } from '../../check/checkTransition';
 import { rememberConversationReturn } from '../../check/projectNavigation';
 import './Check.css';
@@ -35,7 +36,10 @@ import './Check.css';
 type Navigate = (screen: Screen) => void;
 type ConversationComposer = {
   latestRequest?: ConversationRequest;
+  latestCheck?: CheckRecord;
   savedChecks?: CheckRecord[];
+  question?: ReactNode;
+  jumpToLatest?: ReactNode;
   editing?: ReactNode;
   replySources?: ReadonlyMap<string, string>;
   replySourcesLoaded?: boolean;
@@ -46,6 +50,9 @@ type ConversationComposer = {
   sending: boolean;
   onFocus?(): void;
   send(request: StartCheckInput): void;
+  runFullCheck?(message: string): boolean;
+  chooseCheck?(options: CheckRecord[], select: (check: CheckRecord) => void, clarify: (text: string) => void): void;
+  onSent?(): void;
   setPermission?(mode: PermissionMode): void;
 };
 
@@ -145,17 +152,18 @@ export function CheckProjectHeader({ check, project, onNavigate, library, projec
   const [panel, setPanel] = useState<'sources' | 'history' | null>(null);
   const [query, setQuery] = useState('');
   const [adding, setAdding] = useState<CheckSourceChoice | null>(null);
-  const [folderError, setFolderError] = useState<string | null>(null);
+  const [openArtifact, setOpenArtifact] = useState<Artifact | null>(null);
   const header = useRef<HTMLElement>(null);
   const sourcesButton = useRef<HTMLButtonElement>(null);
   const historyButton = useRef<HTMLButtonElement>(null);
   const historyInput = useRef<HTMLInputElement>(null);
-  const result = useImportSources(panel === 'sources' ? check.projectId : undefined);
   const checks = useChecks();
   const matching = checks.filter(item => check.projectId && item.projectId === check.projectId
     && checkName(item).toLowerCase().includes(query.trim().toLowerCase()));
   const folder = project?.workspacePath || project?.managedWorkspacePath || check.folder;
   const projectId = project?.id ?? check.projectId;
+  const githubUrl = githubDestination(check.githubUrl);
+  const showRepoLocation = githubUrl && !library.connected?.some(source => source.kind === 'github_repository' && githubDestination(source.remoteUrl) === githubUrl);
 
   useEffect(() => {
     if (!panel) return;
@@ -217,32 +225,19 @@ export function CheckProjectHeader({ check, project, onNavigate, library, projec
       <div className="ck-library-heading ck-source-heading"><strong>Sources</strong>{check.projectId && <SourceActions onChoose={setAdding} />}</div>
       <div className="ck-header-scroll">
         <section className="ck-source-section" aria-label="Project locations">
-          {folder && <div className="ck-source-row">
-            <Icon icon={Folder} /><div><strong>Workspace folder</strong><small title={folder}>{folder}</small></div>
-            <button type="button" className="ck-round" aria-label="Open workspace folder" title="Open workspace folder" onClick={() => {
-              setFolderError(null);
-              if (!('__TAURI_IPC__' in window)) { setFolderError('Open the workspace folder from the desktop app.'); return; }
-              void invoke('open_workspace_folder', { folder }).catch(error => setFolderError(typeof error === 'string' ? error : 'The workspace folder could not be opened.'));
-            }}><Icon icon={ExternalLink} /></button>
-          </div>}
-          {folderError && <p role="status">{folderError}</p>}
-          {check.githubUrl && !result?.sources.some(source => source.location === check.githubUrl) && <div className="ck-source-row">
-            <Icon icon={Folder} /><div><strong>GitHub repository</strong><small title={check.githubUrl}>{check.githubUrl}</small></div>
-          </div>}
+          {folder && <LibrarySourceRow name="Workspace folder" detail={folder} icon={Folder} folder={folder} />}
+          {showRepoLocation && <LibrarySourceRow name="GitHub repository" detail={githubUrl} icon={GitBranch} url={githubUrl} />}
         </section>
         <section className="ck-source-section" aria-label="Library">
           <div className="ck-library-heading"><strong>Library</strong></div>
-          {(result?.sources ?? []).map(source => <div className="ck-source-row" key={source.id}><Icon icon={FileText} /><div>
-            <strong title={source.name}>{source.name}</strong>{source.location && <small title={source.location}>{source.location}</small>}
-          </div></div>)}
-          <CheckLibraryGroups library={library} listedIds={result?.sources.map(source => source.id) ?? []} />
-          {!result && check.projectId && <p role="status">Loading project sources…</p>}
-          {result?.incomplete && <p role="status">Some sources could not be loaded.</p>}
+          <CheckLibraryGroups library={library} onOpenArtifact={artifact => { setPanel(null); setOpenArtifact(artifact); }} />
         </section>
       </div>
     </div>}
     {adding && check.projectId && <CheckAddSource projectId={check.projectId} initialChoice={adding} onClose={() => { setAdding(null); sourcesButton.current?.focus({ preventScroll: true }); }}
       onSaved={() => { library.refresh(); setPanel(null); }} />}
+    {openArtifact && openArtifact.projectId === projectId && <ArtifactPreviewDialog key={openArtifact.id} artifact={openArtifact}
+      onClose={() => { setOpenArtifact(null); sourcesButton.current?.focus({ preventScroll: true }); }} />}
   </header>;
 }
 
@@ -273,6 +268,7 @@ export function CheckFollowUp({ check, projects, onNavigate, available, library,
   const [documents, setDocuments] = useState<CheckDocument[]>(saved.documents ?? []);
   const [readingDocuments, setReadingDocuments] = useState(false);
   const [attachmentMessage, setAttachmentMessage] = useState<string | null>(null);
+  const chosenCheck = useRef<{ text: string; check: CheckRecord }>();
   const composer = useRef<HTMLFormElement>(null);
   const mounted = useRef(false);
   const addTrigger = useRef<HTMLButtonElement>(null);
@@ -327,8 +323,8 @@ export function CheckFollowUp({ check, projects, onNavigate, available, library,
     if (!check.projectId) return;
     writeConversationDraft(check.projectId, { ...readConversationDraft(check.projectId, check.id), text: draft, mode,
       checkIds: attachedChecks.map(item => item.id), problems: attachedProblems,
-      checks: attachedChecks.map(({ id, projectId, projectName, title, mode, phase, reviewId, autoTestId, createdAt, updatedAt }) =>
-        ({ id, projectId, projectName, title, mode, phase, reviewId, autoTestId, createdAt, updatedAt })),
+      checks: attachedChecks.map(({ id, projectId, projectName, title, mode, phase, reviewId, autoTestId, createdAt, updatedAt, focus }) =>
+        ({ id, projectId, projectName, title, mode, phase, reviewId, autoTestId, createdAt, updatedAt, focus })),
       documents: documents.filter(item => item.saved).map(item => ({ ...item, base64: '' })), sourceIds, replyToTurnId }, check.id);
   }, [check.id, check.projectId, draft, mode, attachedChecks, attachedProblems, documents, sourceIds, replyToTurnId]);
   useEffect(() => {
@@ -355,9 +351,10 @@ export function CheckFollowUp({ check, projects, onNavigate, available, library,
   }, [check.id, check.projectId, saved.requestId]);
   const hasFolder = !!(projectLocalFolder(project) || check.folder);
   const effectiveMode = conversation?.editing ? 'browser' : hasFolder || conversation ? mode : 'code';
-  const libraryRequiresCode = effectiveMode === 'browser' && sources.length > 0;
+  const canUseLibrary = effectiveMode !== 'browser' || typeof api.sendConversationRequest === 'function' && !conversation?.editing;
+  const libraryRequiresCode = effectiveMode === 'browser' && sources.length > 0 && !canUseLibrary;
   const revisionHasAttachments = !!conversation?.editing && (documents.length > 0 || sources.length > 0 || attachedChecks.length > 0);
-  const replyTargetBlocksSend = !!replyToTurnId && (!replyTargetAvailable || !!conversation?.editing || typeof api.sendConversationRequest !== 'function');
+  const replyTargetBlocksSend = !!replyToTurnId && (!!conversation?.editing || typeof api.sendConversationRequest !== 'function');
   const canSend = !replyTargetBlocksSend && project && draft.trim() && !sending && !readingDocuments && !conversation?.sending && !libraryRequiresCode && !revisionHasAttachments && !mention;
   const candidates = [...recent, ...(conversation?.savedChecks ?? []).filter(item => !recent.some(existing => existing.id === item.id ||
     item.reviewId && existing.reviewId === item.reviewId || item.autoTestId && existing.autoTestId === item.autoTestId))];
@@ -393,35 +390,69 @@ export function CheckFollowUp({ check, projects, onNavigate, available, library,
     } finally { setReadingDocuments(false); }
   };
   const dragging = usePageDocumentDrop(composer, !conversation?.editing, addDocuments);
-  return <>{dragging && <PageDocumentDropIndicator anchor={composer} />}<form ref={composer} className={`ck-composer ck-follow-up${expanded ? ' is-expanded' : ''}`} onSubmit={async event => {
+  return <>{dragging && <PageDocumentDropIndicator anchor={composer} />}
+  {(conversation?.question || conversation?.jumpToLatest) && <div className="pc-composer-extras">
+    {conversation?.question}
+    {conversation?.jumpToLatest}
+  </div>}
+  <form ref={composer} className={`ck-composer ck-follow-up${expanded ? ' is-expanded' : ''}`} onSubmit={async event => {
     event.preventDefault();
     if (!canSend) return;
     const focus = draft.trim();
+    if (conversation?.runFullCheck && !conversation.editing && !replyToTurnId && !attachedChecks.length && !attachedProblems.length
+      && !documents.length && !sources.length && requestsFullCheck(focus)) {
+      if (conversation.runFullCheck(focus)) { resetDraft(); conversation.onSent?.(); }
+      return;
+    }
     const moduleReview = namedReviewScope(focus);
     const includesAccount = looksLikeAccount(focus);
     if (includesAccount && !prefs.accountReminderShown) {
       updatePrefs(project.id, current => ({ ...current, accountReminderShown: true }));
       addNote(project.id, 'The AI will see this account. Use test accounts only.');
     }
-    const standaloneBrowser = conversation && !replyToTurnId && effectiveMode === 'browser' && !check.id && !documents.length
-      && !moduleReview && !asksForUnscopedReview(focus)
-      && (requestsCheckExecution(focus) || includesAccount && /\bto\s+(?:test|check|verify|run)\b/i.test(focus))
-      && !readConversationDraft(project.id, check.id).requestId
-      && !attachedChecks.length && !attachedProblems.length && !sources.length;
-    if (!standaloneBrowser && !conversation?.editing && typeof api.sendConversationRequest === 'function') {
+    if (!conversation?.editing && typeof api.sendConversationRequest === 'function') {
       setSending(true);
       try {
         const owner = sessionStorage.getItem('centinel:supabase-user-id');
-        const checkReferences = attachedChecks.filter(item => item.projectId === project.id).map(checkReference).map(reference => ({
-          ...(reference.reviewId && !attachedProblems.some(item => item.reference.reviewId === reference.reviewId) ? { reviewId: reference.reviewId } : {}),
-          ...(reference.autoTestId && !attachedProblems.some(item => item.reference.autoTestId === reference.autoTestId) ? { autoTestId: reference.autoTestId } : {}),
-        })).filter(reference => Object.keys(reference).length > 0);
+        if (replyToTurnId && !replyTargetAvailable
+          && !await loadConversationReplySource(project.id, replyToTurnId, owner)) {
+          throw new Error('The quoted reply is no longer available in this project.');
+        }
+        const previous = conversation?.latestRequest;
+        const selection = chosenCheck.current?.text === focus ? chosenCheck.current.check : undefined;
+        chosenCheck.current = undefined;
+        let selectedChecks = attachedChecks;
+        if (!selectedChecks.length && !attachedProblems.length && !replyToTurnId && !moduleReview) {
+          const projectChecks = candidates.filter(item => item.projectId === project.id);
+          const options = selection ? [selection] : asksForProjectStatus(focus)
+            ? projectChecks.filter(item => item.reviewId || item.autoTestId).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 1)
+            : mentionedCheckCandidates(focus, projectChecks, previous, conversation?.latestCheck);
+          if (options.length > 1 && conversation?.chooseCheck) {
+            conversation.chooseCheck(options, selected => {
+              chosenCheck.current = { text: focus, check: selected };
+              composer.current?.requestSubmit();
+            }, clarification => {
+              const extra = clarification.trim();
+              if (!extra) return;
+              chosenCheck.current = undefined;
+              setDraft(current => `${current.trim() || focus.trim()}\n${extra}`);
+              setAttachmentMessage(null);
+              input.current?.focus({ preventScroll: true });
+            });
+            return;
+          }
+          if (options.length === 1) selectedChecks = options;
+        }
+        const checkReferences = selectedChecks.filter(item => item.projectId === project.id).map(checkReference).flatMap(reference => {
+          const reviewId = attachedProblems.some(item => item.reference.reviewId === reference.reviewId && reference.reviewId) ? undefined : reference.reviewId;
+          const autoTestId = attachedProblems.some(item => item.reference.autoTestId === reference.autoTestId && reference.autoTestId) ? undefined : reference.autoTestId;
+          return reviewId || autoTestId ? [{ ...reference, reviewId, autoTestId }] : [];
+        });
         const references = [...checkReferences,
           ...attachedProblems.map(item => item.reference), ...sources.map(item => ({ artifactId: item.id })),
           ...documents.filter(item => item.saved?.projectId === project.id).map(item => ({ artifactId: item.saved!.artifactId }))];
         if (documents.some(item => item.saved?.projectId !== project.id)) throw new Error('Some documents are not saved yet. Add them again before sending.');
         if (references.some(ref => !Object.keys(ref).length)) throw new Error('An attached check has no saved evidence yet.');
-        const previous = conversation?.latestRequest;
         const current = readConversationDraft(project.id, check.id);
         const approval = replyToTurnId ? null : conversationApproval(focus);
         if (approval && !references.length && !current.requestId && previous && previous.projectId === project.id && previous.ownerId === owner) {
@@ -454,6 +485,7 @@ export function CheckFollowUp({ check, projects, onNavigate, available, library,
           setModeChangedByOrin(true);
         }
         setAttachmentMessage(null);
+        conversation?.onSent?.();
         if (check.id) {
           rememberCheckTransition(check.id, composer.current?.closest('.ck-detail-layout')?.querySelector('.ck-detail-content .ck-panel') ?? null);
           rememberConversationReturn(project.id);
@@ -478,6 +510,7 @@ export function CheckFollowUp({ check, projects, onNavigate, available, library,
       setSourceIds([]);
       setAttachedChecks([]);
       setAttachmentMessage(null);
+      conversation.onSent?.();
       return;
     }
     setSending(true);
@@ -487,31 +520,33 @@ export function CheckFollowUp({ check, projects, onNavigate, available, library,
     <button type="button" className="ck-composer-expand" aria-label={expanded ? 'Collapse composer' : 'Expand composer'} aria-expanded={expanded}
       onClick={() => setExpanded(value => !value)}><Icon icon={expanded ? Minimize2 : Maximize2} /></button>
     {conversation?.editing}
-    {replyToTurnId && <div className="pc-reply-chip">
-      <Reply size={15} aria-hidden="true" />
-      <div>
-        <strong>{replyTargetAvailable ? 'Replying to ORIN' : conversation?.replySourcesLoaded ? 'Selected reply unavailable' : 'Loading selected reply'}</strong>
-        {conversation?.editing
-          ? <span>Remove the reply target to change this test.</span>
-          : replyTargetAvailable ? <span>{conversation?.replySources?.get(replyToTurnId)}</span> : null}
-      </div>
-      <button type="button" aria-label="Remove reply target" onClick={() => {
-        setReplyToTurnId(undefined);
-        input.current?.focus({ preventScroll: true });
-      }}><Icon icon={X} /></button>
-    </div>}
-    {!!attachedProblems.length && <ul className="ck-attached">{attachedProblems.map((item, index) => <li className="ck-chip" key={JSON.stringify(item.reference)}>
-      <Icon icon={FileText} /><span>{item.label}</span><button type="button" aria-label={'Remove problem ' + item.label} onClick={() => setAttachedProblems(current => current.filter((_, at) => at !== index))}><Icon icon={X} /></button>
-    </li>)}</ul>}
-    {!!documents.length && <ul className="ck-attached">{documents.map(document => <li className="ck-chip" key={document.name}>
-      <Icon icon={FileText} /><span>{document.name}</span><button type="button" aria-label={`Remove ${document.name}`} onClick={() => setDocuments(current => current.filter(item => item.name !== document.name))}><Icon icon={X} /></button>
-    </li>)}</ul>}
-    {!!sources.length && <ul className="ck-attached">{sources.map(source => <li className="ck-chip" key={source.id}>
-      <Icon icon={FileText} /><span>{source.fileName}</span><button type="button" aria-label={`Remove source ${source.fileName}`} onClick={() => setSourceIds(current => current.filter(id => id !== source.id))}><Icon icon={X} /></button>
-    </li>)}</ul>}
-    {!!attachedChecks.length && <ul className="ck-attached">{attachedChecks.map(item => <li className="ck-chip" key={item.id}>
-      <Icon icon={SquareChartGantt} /><span>{checkName(item)}</span><button type="button" aria-label={'Remove check ' + checkName(item)} onClick={() => setAttachedChecks(current => current.filter(entry => entry.id !== item.id))}><Icon icon={X} /></button>
-    </li>)}</ul>}
+    {replyToTurnId && <ConversationQuotePreview className="pc-reply-chip" projectId={check.projectId ?? ''}
+      ownerId={sessionStorage.getItem('centinel:supabase-user-id')} turnId={replyToTurnId}
+      preview={conversation?.replySources?.get(replyToTurnId)} label="Quoted reply">
+      {preview => <>
+        <Reply size={15} aria-hidden="true" />
+        <div>
+          <strong>Quoted reply</strong>
+          {conversation?.editing
+            ? <span>Remove the quote before changing this test.</span>
+            : preview ? <span>{preview}</span> : null}
+        </div>
+        <button type="button" aria-label="Remove quoted reply" onClick={() => {
+          setReplyToTurnId(undefined);
+          input.current?.focus({ preventScroll: true });
+        }}><Icon icon={X} /></button>
+      </>}
+    </ConversationQuotePreview>}
+    {!!(attachedProblems.length || documents.length || sources.length || attachedChecks.length) && <ul className="ck-attached ck-conversation-attachments" aria-label="Draft attachments">
+      {attachedProblems.map((item, index) => <ConversationAttachment key={JSON.stringify(item.reference)} kind="problem" label={item.label}
+        onRemove={() => setAttachedProblems(current => current.filter((_, at) => at !== index))} />)}
+      {documents.map(document => <ConversationAttachment key={document.name} kind="document" label={document.name} base64={document.base64}
+        onRemove={() => setDocuments(current => current.filter(item => item.name !== document.name))} />)}
+      {sources.map(source => <ConversationAttachment key={source.id} kind="library" label={source.fileName}
+        onRemove={() => setSourceIds(current => current.filter(id => id !== source.id))} />)}
+      {attachedChecks.map(item => <ConversationAttachment key={item.id} kind="check" label={checkName(item)}
+        onRemove={() => setAttachedChecks(current => current.filter(entry => entry.id !== item.id))} />)}
+    </ul>}
     <textarea ref={input} className="ck-focus" rows={2} maxLength={2000} aria-label={conversation ? "Message to ORIN" : "Follow-up check"} value={draft} onFocus={conversation?.onFocus}
       placeholder={conversation?.placeholder ?? (available ? 'What should ORIN check next?' : 'Prepare a follow-up while this check runs')}
       onChange={event => changeDraft(event.target.value, event.target.selectionStart)}
@@ -579,7 +614,7 @@ export function CheckFollowUp({ check, projects, onNavigate, available, library,
         {!mentionProjects.length && <p>No matching projects.</p>}
       </section>}
       <section aria-label="Library"><h2>Library</h2>
-        {!check.projectId ? <p>No project library available.</p> : effectiveMode === 'browser' ? <p>Choose Code or Code and browser to attach library files.</p> :
+        {!check.projectId ? <p>No project library available.</p> : !canUseLibrary ? <p>Choose Code or Code and browser to attach library files.</p> :
           <CheckLibraryList library={library} attached={sources} filter={mention?.query} onAttach={source => { setSourceIds(current => [...new Set([...current, source.id])]); finishAttachment(); }} />}
       </section>
     </div>}

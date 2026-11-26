@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Check, ChevronRight, Code, Info, MessageCircle, MonitorCheck, Minus, OctagonAlert, RotateCcw, Sparkles, TriangleAlert, X } from 'lucide-react';
+import { ArrowUpRight, Check, ChevronRight, Code, Info, MessageCircle, MonitorCheck, Minus, OctagonAlert, RotateCcw, Sparkles, TriangleAlert, X } from 'lucide-react';
 import { api } from '../../api/client';
 import { Icon, type IconShape } from '../../components/Icon';
 import { IssueSourceContext, REVIEW_ISSUE_CATEGORIES, reviewIssueCategory, shortReviewIssueTitle, type ReviewIssueCategory } from '../../components/ReviewIssues';
@@ -18,6 +18,8 @@ import type { ReviewHarnessTrace } from '../../reviewHarness';
 import { buildReviewNarrative, plainReviewText } from '../../reviewNarrative';
 import { reviewLifecycleState } from '../../reviewViewModel';
 import type { Finding, FindingSourceReference } from '../../types';
+import type { SavedConversationProblem } from '../../check/conversationTypes';
+import { deriveRiskLevelWithFallback } from '../../riskPolicy';
 
 export const RISK_ICON: Record<string, { icon: typeof Check; shape?: IconShape; className: string }> = {
   critical: { icon: OctagonAlert, className: 'pc-risk-critical' },
@@ -166,17 +168,23 @@ function IssueGroup({ title, count, children }: { title: string; count: number |
 }
 
 /** One problem: a title row that opens to its detail. Source is read only when opened. */
-function IssueRow({ problem, mark, children }: { problem: CheckProblem; mark: ReactNode; children: (open: boolean) => ReactNode }) {
-  const [open, setOpen] = useState(false);
+function IssueRow({ problem, mark, children, initiallyOpen = false, onOpenOriginal, originalLabel }: {
+  problem: CheckProblem; mark: ReactNode; children: (open: boolean) => ReactNode; initiallyOpen?: boolean;
+  onOpenOriginal?(): void; originalLabel?: string;
+}) {
+  const [open, setOpen] = useState(initiallyOpen);
   const look = problemLook(problem);
   return (
-    <details className="pc-ov-issue" onToggle={event => setOpen(event.currentTarget.open)}>
+    <details className={`pc-ov-issue${onOpenOriginal ? ' has-open-original' : ''}`} aria-label={problem.title}
+      open={initiallyOpen} onToggle={event => setOpen(event.currentTarget.open)}>
       <summary>
         <Icon icon={ChevronRight} className="pc-ov-chevron" />
         <Icon icon={look.icon} shape={look.shape} className={look.className} />
         <span className="pc-ov-title" title={problem.title}>{problem.title}</span>
         {mark}
       </summary>
+      {onOpenOriginal && <button type="button" className="ck-button is-small pc-ov-open-original" aria-label={originalLabel ?? 'Open original problem'}
+        title={originalLabel ?? 'Open original problem'} onClick={onOpenOriginal}><Icon icon={ArrowUpRight} /></button>}
       <div className="pc-ov-detail">{children(open)}</div>
     </details>
   );
@@ -186,19 +194,42 @@ function AskButton({ onAsk }: { onAsk?(): void }) {
   return onAsk ? <button type="button" className="ck-button is-small" onClick={onAsk}><Icon icon={MessageCircle} />Ask about this problem</button> : null;
 }
 
-function BrowserIssue({ problem, onReplay, onAsk, projectId }: { problem: CheckProblem; onReplay?(problem: CheckProblem): void; onAsk?(): void; projectId: string }) {
+function BrowserIssue({ problem, onReplay, onAsk, projectId, initiallyOpen = false, savedStatus, currentStatus, showBrowserMark = true,
+  onOpenOriginal, originalLabel, savedEvidence, limitations = [] }: {
+  problem: CheckProblem; onReplay?(problem: CheckProblem): void; onAsk?(): void; projectId: string; initiallyOpen?: boolean; savedStatus?: string; currentStatus?: string;
+  showBrowserMark?: boolean; onOpenOriginal?(): void; originalLabel?: string; savedEvidence?: SavedConversationProblem; limitations?: string[];
+}) {
+  const coverageNote = savedEvidence?.browserCoverage === 'stopped' ? 'The Browser Check stopped before it finished. Remaining behavior is unchecked.'
+    : savedEvidence?.browserCoverage === 'partial' ? 'Some Browser behavior remains unchecked.' : undefined;
+  const evidenceLimitations = [...new Set([coverageNote, ...limitations].filter((value): value is string => !!value))];
   return (
-    <IssueRow problem={problem} mark={<span className="pc-ov-mark is-browser"><Icon icon={MonitorCheck} />Browser</span>}>
+    <IssueRow problem={problem} initiallyOpen={initiallyOpen} onOpenOriginal={onOpenOriginal} originalLabel={originalLabel}
+      mark={showBrowserMark ? <span className="pc-ov-mark is-browser"><Icon icon={MonitorCheck} />Browser</span> : null}>
       {open => <>
-        {problem.location && <p className="pc-ov-meta">{problem.location}</p>}
+        {(problem.location || savedStatus || currentStatus) && <p className="pc-ov-meta">{problem.location && <span>{problem.location}</span>}
+          {savedStatus && <span>Saved result: {statusLabel(savedStatus)}</span>}
+          {currentStatus && <span>Current status: {currentStatus}</span>}</p>}
         {(problem.browserChecks ?? []).map((item, index) => (
           <div key={index} className="pc-ov-expect">
             <div><small>Expected</small>{item.expected}</div>
             <div><small>The page showed</small>{item.observed}</div>
           </div>
         ))}
-        {open && problem.runId && <div className="pc-ov-steps"><small>Steps in the browser</small><RunTimeline projectId={projectId} runId={problem.runId} checkFailed checkSummary={problem.browserChecks?.[0]?.expected ?? null} /></div>}
-        {problem.aiExplanation && <p className="pc-ov-prose"><b><Icon icon={Sparkles} /> AI explanation.</b> {withCode(problem.aiExplanation)}</p>}
+        {savedEvidence?.browserEvidenceAttempt === 'earlier' && <p className="pc-ov-prose">Saved observations and steps are from an earlier Browser attempt.</p>}
+        {open && problem.runId && <div className="pc-ov-steps"><small>Steps in the browser</small><RunTimeline projectId={projectId} runId={problem.runId} checkFailed={showBrowserMark} checkSummary={problem.browserChecks?.[0]?.expected ?? null} /></div>}
+        {savedEvidence?.firstAttempt && savedEvidence.browserEvidenceAttempt !== 'earlier' && <details className="pc-prior-attempt">
+          <summary>Earlier Browser attempt</summary>
+          {savedEvidence.firstAttempt.state && <p>Saved result: {statusLabel(savedEvidence.firstAttempt.state)}</p>}
+          {!!savedEvidence.firstAttempt.browserChecks?.length && <ul>{savedEvidence.firstAttempt.browserChecks.map((item, index) => <li key={index}>
+            <strong>Expected</strong> {item.expected} · <strong>The page showed</strong> {item.observed}
+          </li>)}</ul>}
+          {savedEvidence.firstAttempt.runId && <div className="pc-ov-steps"><small>Steps in the earlier Browser attempt</small>
+            <RunTimeline projectId={projectId} runId={savedEvidence.firstAttempt.runId} checkFailed={savedEvidence.firstAttempt.state === 'failed'}
+              checkSummary={savedEvidence.firstAttempt.browserChecks?.[0]?.expected ?? null} /></div>}
+          {savedEvidence.firstAttempt.aiExplanation && <p className="pc-ov-prose"><b><Icon icon={Sparkles} /> Possible cause from an earlier attempt (AI explanation).</b> {withCode(savedEvidence.firstAttempt.aiExplanation)}</p>}
+        </details>}
+        {problem.aiExplanation && <p className="pc-ov-prose"><b><Icon icon={Sparkles} /> {savedEvidence?.aiExplanationFromEarlier ? 'Possible cause from an earlier attempt (AI explanation).' : 'Possible cause (AI explanation).'}</b> {withCode(problem.aiExplanation)}</p>}
+        {!!evidenceLimitations.length && <ul className="pc-evidence-limitations">{evidenceLimitations.map((limit, index) => <li key={index}>{limit}</li>)}</ul>}
         {/* Runs it again from the conversation, where the user sends it. */}
         {(onReplay || onAsk) && <div className="pc-ov-actions">
           <AskButton onAsk={onAsk} />
@@ -209,14 +240,22 @@ function BrowserIssue({ problem, onReplay, onAsk, projectId }: { problem: CheckP
   );
 }
 
-function CodeIssue({ problem, finding, behavior, projectId, category, onAsk }: { problem: CheckProblem; finding?: Finding; behavior: string | null; projectId: string; category: ReviewIssueCategory; onAsk?(): void }) {
+function CodeIssue({ problem, finding, behavior, projectId, category, onAsk, sourceReferences, sourceReviewId, originalStatus,
+  currentStatus, currentStatusUnavailable, evidenceUnavailable, initiallyOpen = false, onOpenOriginal, originalLabel, limitations = [] }: {
+    problem: CheckProblem; finding?: Finding; behavior: string | null; projectId: string; category: ReviewIssueCategory; onAsk?(): void;
+    sourceReferences?: FindingSourceReference[]; sourceReviewId?: string; originalStatus?: string; currentStatus?: string;
+    currentStatusUnavailable?: boolean; evidenceUnavailable?: boolean; initiallyOpen?: boolean;
+  onOpenOriginal?(): void; originalLabel?: string; limitations?: string[];
+  }) {
   const risk = problem.risk;
   return (
     <IssueRow problem={{ ...problem, title: finding ? shortReviewIssueTitle(finding.title) : problem.title }}
+      initiallyOpen={initiallyOpen} onOpenOriginal={onOpenOriginal} originalLabel={originalLabel}
       mark={risk ? <span className={`pc-ov-risk pc-risk-${risk}`}>{risk[0].toUpperCase() + risk.slice(1)}</span> : null}>
       {open => {
         const files = new Map<string, FindingSourceReference[]>();
-        if (finding) for (const ref of findingSourceReferences(finding)) {
+        const references = finding ? findingSourceReferences(finding) : sourceReferences ?? [];
+        for (const ref of references) {
           const path = ref.filePath.replaceAll('\\', '/');
           files.set(path, [...(files.get(path) ?? []), ref]);
         }
@@ -227,20 +266,58 @@ function CodeIssue({ problem, finding, behavior, projectId, category, onAsk }: {
             <span>{category} issue</span>
             {behavior && <span>Behavior: {behavior}</span>}
             {!finding && problem.location && <span>{problem.location}</span>}
+            {originalStatus && <span>Saved status: {statusLabel(originalStatus)}</span>}
+            {currentStatus && <span>Current status: {currentStatus}</span>}
+            {currentStatusUnavailable && <span>Current status: Unavailable</span>}
           </p>
           {open && [...files].map(([path, refs]) => (
             <div key={path} className="pc-ov-code">
               <p className="pc-ov-file"><Icon icon={Code} /><span>{path}</span><small>Highlighted: where the problem is</small></p>
-              <IssueSourceContext projectId={projectId} reviewId={finding?.latestOccurrence?.reviewId ?? finding?.sessionId ?? null} referencesJson={JSON.stringify(refs)} />
+              <IssueSourceContext projectId={projectId} reviewId={sourceReviewId ?? finding?.latestOccurrence?.reviewId ?? finding?.sessionId ?? null} referencesJson={JSON.stringify(refs)} />
             </div>
           ))}
+          {open && !files.size && evidenceUnavailable && <p className="pc-ov-prose" role="status">The original source excerpt is unavailable.</p>}
           {overview && <p className="pc-ov-prose"><b>Issue overview.</b> {withCode(overview)}</p>}
           {next && <p className="pc-ov-prose"><b>What to do.</b> {withCode(next)}</p>}
+          {!!limitations.length && <ul className="pc-evidence-limitations">{limitations.map((limit, index) => <li key={index}>{limit}</li>)}</ul>}
           {open && onAsk && <div className="pc-ov-actions"><AskButton onAsk={onAsk} /></div>}
         </>;
       }}
     </IssueRow>
   );
+}
+
+function statusLabel(value: string) {
+  return ({ new: 'Open', accepted: 'Accepted', carryover: 'Open', fixed: 'Resolved', dismissed: 'Dismissed',
+    failed: 'Failed', passed: 'Passed', blocked: 'Could not finish', uncertain: 'Unclear', cancelled: 'Stopped' } as Record<string, string>)[value] ?? value.replaceAll('_', ' ');
+}
+
+/** Saved Problem card for conversation: reuses the same original issue row and frozen-source renderer as the project result. */
+export function SavedProjectProblem({ problem, projectId, initiallyOpen = true, onOpenOriginal, limitations = [] }: {
+  problem: SavedConversationProblem; projectId: string; initiallyOpen?: boolean; onOpenOriginal?(): void; limitations?: string[];
+}) {
+  const risk = problem.risk ?? deriveRiskLevelWithFallback(problem.severity, problem.priority);
+  const browserProof = problem.kind === 'browser' && (problem.browserProof ?? (problem.browserCoverage === undefined && problem.originalStatus === 'failed'));
+  const checkProblem: CheckProblem = {
+    key: problem.findingId ? `finding:${problem.findingId}` : `test:${problem.testId ?? problem.title}`,
+    kind: problem.kind, title: problem.title, location: problem.location ?? null, risk,
+    marks: problem.kind === 'code' ? ['code'] : browserProof ? ['browser'] : [],
+    codeSummary: problem.kind === 'code' ? problem.description : undefined,
+    recommendation: problem.recommendation,
+    browserChecks: problem.browserChecks,
+    aiExplanation: problem.aiExplanation,
+    findingId: problem.findingId, testId: problem.testId, runId: problem.runId,
+  };
+  if (problem.kind === 'browser') return <BrowserIssue problem={checkProblem} projectId={projectId} initiallyOpen={initiallyOpen} savedStatus={problem.originalStatus}
+    currentStatus={problem.currentStatus ?? (problem.currentStatusUnavailable ? 'Unavailable' : undefined)} showBrowserMark={browserProof}
+    onOpenOriginal={onOpenOriginal} originalLabel="Open original problem" savedEvidence={problem} limitations={limitations} />;
+  const category = reviewIssueCategory({ title: problem.title, category: problem.category ?? '',
+    location: { domain: problem.domain ?? null }, evidenceGap: undefined, requirementId: undefined });
+  return <CodeIssue problem={checkProblem} finding={undefined} behavior={null} projectId={projectId} category={category}
+    sourceReferences={problem.sourceReferences} sourceReviewId={problem.reviewId} originalStatus={problem.originalStatus}
+    currentStatus={problem.currentStatus} currentStatusUnavailable={problem.currentStatusUnavailable}
+    evidenceUnavailable={problem.evidenceUnavailable} initiallyOpen={initiallyOpen} onOpenOriginal={onOpenOriginal}
+    originalLabel="Open original problem" limitations={limitations} />;
 }
 
 /**

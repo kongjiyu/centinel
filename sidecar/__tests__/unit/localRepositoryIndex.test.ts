@@ -84,6 +84,14 @@ beforeEach(() => {
 afterEach(async () => { for (const root of roots.splice(0)) await fs.rm(root, { recursive: true, force: true }); });
 
 describe('frozen local repository index integration', () => {
+  it('returns a scope error before loading embedding settings for an oversized source selection', async () => {
+    const storage = client();
+    const artifacts = Array.from({ length: 1025 }, (_, index) => ({ ...artifact, id: `artifact-${index}`, filePath: `src/${index}.ts` }));
+    await expect(describeRepositoryIndex(storage.client, owner, project, artifacts))
+      .rejects.toMatchObject({ code: 'repository_index_scope_too_large', statusCode: 422 });
+    expect(mocks.resolve).not.toHaveBeenCalled();
+    expect(mocks.open).not.toHaveBeenCalled();
+  });
   it.each([{ versionId: undefined }, { contentHash: 'invalid' }, { projectId: 'other-project' }])(
     'requires exact project versions before resolving settings or opening the index (%j)', async invalid => {
       const storage = client();

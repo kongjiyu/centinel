@@ -48,6 +48,7 @@ describe('browser test steps', () => {
     expect(plainReason('The approved interaction target must be unique.')).toBe('ORIN could not tell which control the AI meant, so it did not press it.');
     expect(plainReason('The interaction target is not on the page.')).toMatch(/not on the page at that moment/);
     expect(plainReason('Something new happened.')).toBe('Something new happened.');
+    expect(plainReason('Model returned invalid response: No valid JSON action {"action":"type"}')).toBe('ORIN could not read the AI’s next browser step.');
   });
 
   it('opens a step screenshot in place and moves to the checked page', async () => {
@@ -66,6 +67,21 @@ describe('browser test steps', () => {
     await user.click(screen.getByRole('button', { name: 'Next screenshot' }));
     expect(await screen.findByRole('dialog', { name: 'The page when the test was checked' })).toBeInTheDocument();
     expect(api.dynamicRunStepScreenshot).toHaveBeenLastCalledWith('p', 'r', 'final');
+  });
+
+  it('keeps a stopped run final screenshot in its inline timeline when no step screenshot exists', async () => {
+    const user = (await import('@testing-library/user-event')).default.setup();
+    vi.mocked(api.dynamicRunSteps).mockResolvedValue(timeline({ state: 'blocked', verdict: 'not_tested', finalScreenshot: true, steps: [
+      { step: 1, action: 'click', target: 'Save', page: '/form', result: 'blocked', error: 'The target was unavailable.', typedLength: null, screenshot: false },
+    ] }));
+    vi.mocked(api.dynamicRunStepScreenshot).mockResolvedValue(new Blob(['png'], { type: 'image/png' }));
+    globalThis.URL.createObjectURL = vi.fn(() => 'blob:shot');
+    globalThis.URL.revokeObjectURL = vi.fn();
+    render(<RunTimeline projectId="p" runId="r" />);
+
+    await user.click(await screen.findByRole('button', { name: 'Screenshot of the last page the browser saw' }));
+    expect(await screen.findByRole('dialog', { name: 'The last page the browser saw' })).toBeInTheDocument();
+    expect(api.dynamicRunStepScreenshot).toHaveBeenCalledWith('p', 'r', 'final');
   });
 });
 

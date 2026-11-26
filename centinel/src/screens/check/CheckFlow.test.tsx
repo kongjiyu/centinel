@@ -114,7 +114,10 @@ it('offers document and repository actions on source hover and keyboard activati
   await user.keyboard('{Enter}');
   actions = within(screen.getByRole('group', { name: 'Source actions' }));
   await user.click(actions.getByRole('button', { name: 'Add documents' }));
-  const picker = within(screen.getByRole('dialog', { name: 'Add Document' }));
+  const documentDialog = screen.getByRole('dialog', { name: 'Add Document' });
+  expect(documentDialog.parentElement).toHaveClass('modal-overlay-app-blur');
+  expect(documentDialog.parentElement?.parentElement).toBe(document.body);
+  const picker = within(documentDialog);
   const file = new File(['release scope'], 'notes.md');
   const entry = { isFile: true, fullPath: '/release/notes.md', file: (resolve: (file: File) => void) => resolve(file) };
   const readEntries = vi.fn().mockImplementationOnce(resolve => resolve([entry])).mockImplementation(resolve => resolve([]));
@@ -129,8 +132,8 @@ it('offers document and repository actions on source hover and keyboard activati
   expect(api.uploadArtifact).toHaveBeenCalledWith(project.id, { fileName: 'release/notes.md', content: 'cmVsZWFzZSBzY29wZQ==', type: 'other' });
   await user.click(screen.getByRole('button', { name: 'Project sources for Fixture shop' }));
   const library = within(screen.getByRole('region', { name: 'Library' }));
-  expect(await library.findByText('release')).toBeInTheDocument();
-  expect(library.queryByText('notes.md')).not.toBeInTheDocument();
+  expect(await library.findByText('notes.md')).toBeInTheDocument();
+  expect(library.queryByText('release')).not.toBeInTheDocument();
 });
 
 it('closes the source flow on repository cancel and still imports a selection', async () => {
@@ -145,7 +148,10 @@ it('closes the source flow on repository cancel and still imports a selection', 
     await user.keyboard('{Enter}');
     screen.getByRole('button', { name: 'Add repository' }).focus();
     await user.keyboard('{Enter}');
-    return within(screen.getByRole('dialog', { name: 'Add Repository' }));
+    const repositoryDialog = screen.getByRole('dialog', { name: 'Add Repository' });
+    expect(repositoryDialog.parentElement).toHaveClass('modal-overlay-app-blur');
+    expect(repositoryDialog.parentElement?.parentElement).toBe(document.body);
+    return within(repositoryDialog);
   };
 
   const picker = await openRepository();

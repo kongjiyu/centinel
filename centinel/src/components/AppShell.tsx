@@ -21,6 +21,8 @@ type Props = {
   screen: Screen;
   onNavigate: (screen: Screen) => void;
   projects: Project[];
+  pendingConversationQuestionProjectIds?: ReadonlySet<string>;
+  conversationQuestionCountdown?: { projectId: string; deadlineAt: number; progress: number };
   onProjectUpdated?: (project: Project) => void;
   onCreateProject?: (name: string, description: string, sources: ProjectRepositoryInput[]) => Promise<ProjectCreationResult | void>;
   accountEmail: string | null;
@@ -62,7 +64,8 @@ const SEARCH_SECTIONS = [
   ] },
 ] as const;
 
-export function AppShell({ screen, onNavigate, projects, accountEmail, githubLogin, accountGithubLogin = null, onCreateProject, onProjectUpdated, onSwitchAccount, onLogOut, children }: Props) {
+export function AppShell({ screen, onNavigate, projects, pendingConversationQuestionProjectIds, conversationQuestionCountdown,
+  accountEmail, githubLogin, accountGithubLogin = null, onCreateProject, onProjectUpdated, onSwitchAccount, onLogOut, children }: Props) {
   const nav = (name: Screen['name']) => onNavigate({ name } as Screen);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
@@ -94,8 +97,8 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
     setSearchOpen(false);
     setDetailsProjectId(projectId);
   };
-  const projectOptions = (project: Project) => (
-    <button type="button" className="sidebar-project-options"
+  const projectOptions = (project: Project, hasQuestion: boolean) => (
+    <button type="button" className={`sidebar-project-options${hasQuestion ? ' has-question' : ''}`}
       aria-label={`Details for ${project.name}`} aria-haspopup="dialog"
       onPointerEnter={event => {
         if (event.pointerType === 'touch' || detailsProjectId) return;
@@ -284,6 +287,8 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
                   <ul className="sidebar-check-list" id="sidebar-recent-projects-list">
                     {recentProjects.slice(0, projectLimit).map(project => {
                       const current = (screen.name === 'project' || screen.name === 'project-detail') && screen.projectId === project.id;
+                      const hasQuestion = pendingConversationQuestionProjectIds?.has(project.id) ?? false;
+                      const countdown = conversationQuestionCountdown?.projectId === project.id ? conversationQuestionCountdown : undefined;
                       return (
                         <li className={`sidebar-project-row${current ? ' active' : ''}`} key={project.id}>
                           <button
@@ -295,7 +300,15 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
                             <Icon icon={FolderOpen} />
                             <OverflowText text={project.name} />
                           </button>
-                          {projectOptions(project)}
+                          {hasQuestion && <button type="button" className="sidebar-project-question"
+                            aria-label={`Open pending ORIN question for ${project.name}`} title="Open pending question"
+                            onClick={() => onNavigate({ name: 'project', projectId: project.id, questionFocus: Date.now() })}>
+                            {countdown && <svg className="sidebar-project-question-ring" viewBox="0 0 20 20" aria-hidden="true">
+                              <circle cx="10" cy="10" r="8.5" strokeDasharray="53.4" strokeDashoffset={53.4 * (1 - countdown.progress)} />
+                            </svg>}
+                            <CircleHelp size={16} strokeWidth={1.8} aria-hidden="true" />
+                          </button>}
+                          {projectOptions(project, hasQuestion)}
                         </li>
                       );
                     })}
@@ -380,7 +393,7 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
                   <button type="button" className="sidebar-check sidebar-project" onClick={() => openSearchResult({ name: 'project', projectId: project.id })}>
                     <Icon icon={FolderOpen} /><OverflowText text={project.name} />
                   </button>
-                  {projectOptions(project)}
+                  {projectOptions(project, false)}
                 </li>)}
               </ul> : <p>{query ? 'No matching projects' : 'No projects yet'}</p>}
             </section>

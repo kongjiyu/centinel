@@ -87,7 +87,7 @@ export function CheckDocumentPicker({ open, onClose, onSelect, closeOnSelect = t
     input.value = '';
     if (files.length) void select(() => readCheckDocuments(files));
   };
-  return <Modal isOpen={open} onClose={close} title="Add Document">
+  return <Modal isOpen={open} onClose={close} title="Add Document" appBackdrop>
     <div className="project-source-drop" data-dragging={dragging || undefined} aria-busy={busy} onDragOver={event => {
       if (!event.dataTransfer.types.includes('Files')) return;
       event.preventDefault();

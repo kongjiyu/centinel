@@ -9,6 +9,8 @@ import { centinelHome } from '../paths.js';
 
 export const REPOSITORY_INDEX_ENGINE = 'open-codebase-index@0.38.1';
 export const REPOSITORY_INDEX_POLICY = 'frozen-local-index-v1';
+// Keep this aligned with the retention policy's artifactIds limit.
+export const MAX_REPOSITORY_INDEX_SOURCES = 1024;
 /** Shared default for Review and authenticated index-sync routes. Tests and
  * isolated evaluations may pass a temporary cacheRoot explicitly. It lives
  * under CENTINEL_HOME, never next to the code: the packaged app runs the
@@ -38,7 +40,7 @@ export function repositoryIndexIdentity(input: Omit<RepositoryIndexIdentity, 'fi
     || (input.embedding.dimensions === 0 && input.embedding.provider !== 'none')
     || !/^[a-f\d]{64}$/i.test(input.embedding.endpointHash)) throw new Error('Invalid repository embedding identity.');
   const sources = [...input.sources].sort((left, right) => left.artifactId.localeCompare(right.artifactId));
-  if (sources.length > 1024 || new Set(sources.map(item => item.artifactId)).size !== sources.length
+  if (sources.length > MAX_REPOSITORY_INDEX_SOURCES || new Set(sources.map(item => item.artifactId)).size !== sources.length
     || sources.some(item => !item.artifactId || item.artifactId.length > 128 || !item.versionId || item.versionId.length > 128
       || !safeSourcePath(item.filePath) || !/^[a-f\d]{64}$/i.test(item.contentHash))) throw new Error('Invalid frozen repository source identity.');
   const identity: Omit<RepositoryIndexIdentity, 'fingerprint'> = { projectId: input.projectId, engine: REPOSITORY_INDEX_ENGINE, policy: REPOSITORY_INDEX_POLICY,

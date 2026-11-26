@@ -11,6 +11,7 @@ import { AppShell } from './components/AppShell';
 import { DashboardScreen } from './screens/DashboardScreen';
 import { StartScreen } from './screens/check/StartScreen';
 import { setCheckAccount } from './check/store';
+import { useConversationQuestionQueue } from './check/conversationQuestionQueue';
 import type { ProjectRepositoryInput } from './types';
 import { restartOnboarding } from './components/OnboardingWizard';
 import { AuthScreen } from './screens/AuthScreen';
@@ -263,6 +264,8 @@ function App() {
     return startRepositoryIndexSync(api, () => indexSyncProjectIds.current);
   }, [entryMode, accountUserId]);
 
+  const questionQueue = useConversationQuestionQueue(projects, screen, entryMode === 'workspace' && sidecarOnline && !!accountUserId, accountUserId);
+
   const returnToSignIn = () => {
     loadGeneration.current++;
     void signOutSupabase().catch(() => undefined);
@@ -346,6 +349,8 @@ function App() {
         authProvider={authProvider}
         onSwitchAccount={switchAccount}
         onLogOut={returnToSignIn}
+        pendingConversationQuestionProjectIds={questionQueue.pendingProjects}
+        conversationQuestionCountdown={questionQueue.countdown}
       >
         <Suspense fallback={<ScreenLoading />}>
         {screen.name === 'new-check' && (
@@ -362,7 +367,12 @@ function App() {
         {screen.name === 'check' && <CheckScreen key={screen.checkId} checkId={screen.checkId} projects={projects} onNavigate={navigate} />}
         {screen.name === 'project' && (() => {
           const project = projects.find(item => item.id === screen.projectId);
-          return project ? <ProjectConversationScreen key={project.id} project={project} projects={projects} onNavigate={navigate} /> : <ScreenLoading />;
+          return project ? <ProjectConversationScreen key={project.id} project={project} projects={projects} onNavigate={navigate}
+            questionFocus={screen.questionFocus}
+            pendingQuestionRequest={questionQueue.loaded && questionQueue.head?.request.projectId === project.id ? questionQueue.head.request : null}
+            questionQueueReady={questionQueue.loaded}
+            questionDeadlineAt={questionQueue.countdown?.projectId === project.id ? questionQueue.countdown.deadlineAt : undefined}
+            onQuestionAnswered={questionQueue.acceptUpdatedRequest} /> : <ScreenLoading />;
         })()}
         {screen.name === 'dashboard' && (
           <DashboardScreen

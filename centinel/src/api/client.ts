@@ -566,8 +566,13 @@ export const api = {
     request<{ title: string | null }>(`/projects/${encodeURIComponent(projectId)}/check-title`, {
       method: 'POST', body: JSON.stringify(input), signal: AbortSignal.timeout(65_000),
     }),
-  conversationRequests: (projectId: string) => request<import('../check/conversationTypes').ConversationRequest[]>(`/projects/${projectId}/conversation-requests`),
+  conversationRequests: (projectId: string, before?: string, limit?: number) => {
+    const filters = new URLSearchParams({ ...(before ? { before } : {}), ...(limit === undefined ? {} : { limit: String(limit) }) });
+    return request<import('../check/conversationTypes').ConversationRequest[]>(`/projects/${projectId}/conversation-requests${filters.size ? '?' + filters : ''}`);
+  },
   conversationRequest: (projectId: string, id: string) => request<import('../check/conversationTypes').ConversationRequest>(`/projects/${projectId}/conversation-requests/${id}`),
+  pendingConversationQuestions: (projectIds: string[]) => request<import('../check/conversationTypes').ConversationRequest[]>(
+    `/conversation-questions${projectIds.map(id => '&projectId=' + encodeURIComponent(id)).join('').replace(/^&/, '?')}`, { cache: 'no-store' }),
   conversationEvidence: (projectId: string, id: string) => request<import('../check/conversationTypes').SavedConversationExplanation & { unavailable: number }>(`/projects/${projectId}/conversation-requests/${id}/evidence`),
   setConversationPermission: (projectId: string, permission: 'ask' | 'auto' | 'bypass') =>
     request(`/projects/${projectId}/conversation-permission`, { method: 'POST', body: JSON.stringify({ permission }) }),
@@ -577,9 +582,15 @@ export const api = {
     }),
   confirmConversationRequest: (projectId: string, id: string, revision: number) =>
     request<import('../check/conversationTypes').ConversationRequest>(`/projects/${projectId}/conversation-requests/${id}/confirm`, { method: 'POST', body: JSON.stringify({ revision }) }),
-  answerConversationQuestion: (projectId: string, id: string, revision: number, selectedOption: number, askFirst = false) =>
+  answerConversationQuestion: (projectId: string, id: string, input: {
+    revision: number;
+    questionId: string;
+    answer: { kind: 'option'; selectedOption: number } | { kind: 'custom'; text: string };
+    automatic?: boolean;
+    askFirst?: boolean;
+  }) =>
     request<import('../check/conversationTypes').ConversationRequest>(`/projects/${projectId}/conversation-requests/${id}/answer`, {
-      method: 'POST', body: JSON.stringify({ revision, selectedOption, askFirst }), signal: AbortSignal.timeout(30_000),
+      method: 'POST', body: JSON.stringify(input), signal: AbortSignal.timeout(30_000),
     }),
   cancelConversationRequest: (projectId: string, id: string) =>
     request<import('../check/conversationTypes').ConversationRequest>(`/projects/${projectId}/conversation-requests/${id}/cancel`, { method: 'POST', body: '{}' }),

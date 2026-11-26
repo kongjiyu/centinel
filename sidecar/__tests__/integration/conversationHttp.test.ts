@@ -20,6 +20,16 @@ vi.mock('../../src/conversation/store.js', () => ({
       await readHistory();
       return [...rows.values()].filter(record => record.projectId === project).map(record => structuredClone(record));
     }
+    async page(project: string, owner: string, before?: { createdAt: string; id: string }, limit = 50) {
+      return (await this.list(project)).filter(row => row.ownerId === owner
+        && (!before || row.createdAt < before.createdAt || row.createdAt === before.createdAt && row.id < before.id))
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)).slice(0, limit);
+    }
+    async listPendingQuestions(projects: string[], owner: string) {
+      return [...rows.values()].filter(row => projects.includes(row.projectId) && row.ownerId === owner && row.state === 'completed'
+        && !!row.pendingQuestionId && row.questions?.some(question => question.id === row.pendingQuestionId && !question.answer))
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)).map(row => structuredClone(row));
+    }
     async listEarlierCompleted(project: string, owner: string, before: string, limit: number) {
       return (await this.list(project)).filter(row => row.ownerId === owner && row.createdAt < before && row.state === 'completed')
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit);
@@ -68,6 +78,55 @@ afterEach(async () => {
 });
 const post = (path: string, body: unknown, token = true) => fetch(base + path, {
   method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer fixture' } : {}) }, body: JSON.stringify(body),
+});
+it('pages owner history across timestamps shared by multiple turns', async () => {
+  const path = '/projects/' + projectId + '/conversation-requests';
+  const input = { id: randomUUID(), text: 'Explain the evidence', mode: 'code', permission: 'auto', references: [] };
+  expect((await post(path, input)).status).toBe(202);
+  await vi.waitFor(() => expect(rows.get(input.id)?.state).toBe('completed'));
+  const sample = rows.get(input.id)!;
+  const make = (ownerId: string) => {
+    const id = randomUUID();
+    rows.set(id, { ...sample, id, ownerId });
+    return id;
+  };
+  for (let index = 0; index < 51; index++) make('owner');
+  const foreign = make('other');
+  const auth = { headers: { Authorization: 'Bearer fixture' } };
+  const first: ConversationRequest[] = await (await fetch(base + path, auth)).json();
+  const second: ConversationRequest[] = await (await fetch(base + path + '?before=' + first.at(-1)!.id, auth)).json();
+  expect(first).toHaveLength(50);
+  expect(second).toHaveLength(2);
+  expect(new Set([...first, ...second].map(row => row.id)).size).toBe(52);
+  const initial: ConversationRequest[] = await (await fetch(base + path + '?limit=10', auth)).json();
+  const older: ConversationRequest[] = await (await fetch(base + path + '?limit=10&before=' + initial.at(-1)!.id, auth)).json();
+  expect(initial.map(row => row.id)).toEqual(first.slice(0, 10).map(row => row.id));
+  expect(older.map(row => row.id)).toEqual(first.slice(10, 20).map(row => row.id));
+  expect((await fetch(base + path + '?limit=51', auth)).status).toBe(400);
+  expect((await fetch(base + path + '?before=' + foreign, auth)).status).toBe(404);
+});
+it('lists only authorized pending questions and resumes a saved turn from a custom answer', async () => {
+  plan.mockResolvedValueOnce({ action: 'clarify', reply: 'Which page should I check?', questionOptions: [], citations: [], scope: [] });
+  const path = '/projects/' + projectId + '/conversation-requests';
+  const id = randomUUID();
+  expect((await post(path, { id, text: 'Check the sign-in problem', mode: 'both', permission: 'auto', references: [] })).status).toBe(202);
+  await vi.waitFor(() => expect(rows.get(id)?.pendingQuestionId).toBeTruthy());
+  const question = rows.get(id)!;
+  const authorization = { headers: { Authorization: 'Bearer fixture' } };
+  const list = await fetch(base + '/conversation-questions?projectId=' + projectId, authorization);
+  expect(await list.json()).toMatchObject([{ id, pendingQuestionId: question.pendingQuestionId }]);
+  expect((await fetch(base + '/conversation-questions?projectId=22222222-2222-4222-8222-222222222222', authorization)).status).toBe(403);
+
+  const questionId = question.pendingQuestionId!;
+  const response = await post(path + '/' + id + '/answer', { revision: question.revision, questionId,
+    answer: { kind: 'custom', text: 'Check the login page and confirm it shows "Welcome back".' } });
+  expect(response.status).toBe(200);
+  await vi.waitFor(() => expect(rows.get(id)?.state).toBe('completed'));
+  expect(rows.get(id)).toMatchObject({ questions: [{ id: questionId, answer: { kind: 'custom', automatic: false,
+    text: 'Check the login page and confirm it shows "Welcome back".' } }], continuation: { questionId, answerKind: 'custom' } });
+  expect(plan.mock.calls[1][1].continuation).toMatchObject({ question: 'Which page should I check?', answer: 'Check the login page and confirm it shows "Welcome back".' });
+  expect((await post(path + '/' + id + '/answer', { revision: question.revision, questionId,
+    answer: { kind: 'custom', text: 'A different answer.' } })).status).toBe(409);
 });
 it('authenticates the public route and returns the same persisted request after duplicate POSTs', async () => {
   const path = '/projects/' + projectId + '/conversation-requests';
@@ -165,7 +224,7 @@ it('records a safe reason when an explicit Review produces a plan with no eligib
   const path = '/projects/' + projectId + '/conversation-requests';
   const id = randomUUID();
   const logger = vi.spyOn(console, 'warn').mockImplementation(() => {});
-  plan.mockResolvedValueOnce({ action: 'code', reply: 'Private proposed reply', citations: ['review:one'],
+  plan.mockResolvedValueOnce({ executionIntent: 'current_request', action: 'code', reply: 'Private proposed reply', citations: ['review:one'],
     claims: [{ citation: 'review:one', excerpt: 'saved evidence' }], scope: [] });
   try {
     expect((await post(path, { id, text: 'Verify the order behavior in code', mode: 'code', permission: 'ask', references: [] })).status).toBe(202);
@@ -199,12 +258,13 @@ it('saves only a valid revision-bound option without dispatching a check', async
   expect((await post(answer, { revision: revision - 1, selectedOption: 1 })).status).toBe(409);
   const saved = await post(answer, { revision, selectedOption: 1 });
   expect(saved.status).toBe(200);
-  expect(await saved.json()).toMatchObject({ state: 'completed', selectedOption: 1, revision: revision + 1 });
+  expect(await saved.json()).toMatchObject({ state: 'accepted', selectedOption: 1, revision: revision + 1 });
+  await vi.waitFor(() => expect(rows.get(id)?.state).toBe('completed'));
   expect((await post(answer, { revision, selectedOption: 1 })).status).toBe(200);
   expect((await post(answer, { revision, selectedOption: 0 })).status).toBe(409);
   expect(rows.get(id)).not.toHaveProperty('reviewId');
   expect(rows.get(id)).not.toHaveProperty('autoTestId');
-  expect(plan).toHaveBeenCalledOnce();
+  expect(plan).toHaveBeenCalledTimes(2);
 });
 
 it('resumes an already answered automation question from the original user request', async () => {
@@ -221,11 +281,12 @@ it('resumes an already answered automation question from the original user reque
     questionOptions: ['Code review only', 'Code and browser'], input: { ...prior.input, id, text: 'try again' } });
   resolveEvidence.mockResolvedValue([{ id: 'module:' + projectId, text: '{"roots":["cypress"],"rootCount":1,"count":1}', hash: 'module' },
     { id: 'module-source:file', artifactId: 'file', text: '{}', hash: 'file' }]);
+  plan.mockResolvedValueOnce({ executionIntent: 'current_request', action: 'code' });
   expect((await post(path + '/' + id + '/answer', { revision: 1, selectedOption: 0 })).status).toBe(200);
   await vi.waitFor(() => expect(rows.get(id)).toMatchObject({ state: 'awaiting_permission', action: 'code', scope: ['file'], selectedOption: 0,
     input: { text: 'try again' }, reviewContinuation: { sourceRequestId: priorId, text: priorText, question } }));
-  expect(resolveEvidence).toHaveBeenCalledWith(expect.anything(), 'owner', projectId, [], expect.any(AbortSignal), false, priorText);
-  expect(plan).not.toHaveBeenCalled();
+  expect(resolveEvidence).toHaveBeenCalledWith(expect.anything(), 'owner', projectId, [], expect.any(AbortSignal), true, priorText);
+  expect(plan).toHaveBeenCalledOnce();
   expect((await post(path + '/' + id + '/answer', { revision: 1, selectedOption: 0 })).status).toBe(200);
   expect(resolveEvidence).toHaveBeenCalledOnce();
 });
@@ -237,7 +298,8 @@ it('asks for the folder after a Code choice when no trusted request supplies sco
   expect((await post(path, { id, text: 'try again', mode: 'both', permission: 'ask', references: [] })).status).toBe(202);
   await vi.waitFor(() => expect(rows.get(id)?.state).toBe('completed'));
   const saved = await post(path + '/' + id + '/answer', { revision: rows.get(id)!.revision, selectedOption: 0 });
-  expect(await saved.json()).toMatchObject({ state: 'completed', action: 'clarify', selectedOption: 0, reply: expect.stringContaining('Which repository folder') });
+  expect(await saved.json()).toMatchObject({ state: 'completed', action: 'clarify', pendingQuestionId: expect.any(String),
+    reply: expect.stringContaining('Which repository folder'), questions: [{ answer: { selectedOption: 0 } }, { text: expect.stringContaining('Which repository folder') }] });
   expect(resolveEvidence).toHaveBeenCalledOnce();
   expect(rows.get(id)).not.toHaveProperty('reviewId');
 });
@@ -262,9 +324,10 @@ it('prepares the Review requested in the screenshot even if history cannot be re
     { id: 'module:' + projectId, text: '{"roots":["cypress"],"rootCount":1,"count":1}', hash: 'module' },
     { id: 'module-source:file', artifactId: 'file', text: '{}', hash: 'file' },
   ]);
+  plan.mockResolvedValueOnce({ executionIntent: 'current_request', action: 'code' });
   expect((await post(path, input)).status).toBe(202);
   await vi.waitFor(() => expect(rows.get(id)).toMatchObject({ state: 'awaiting_permission', action: 'code', scope: ['file'] }));
-  expect(plan).not.toHaveBeenCalled();
+  expect(plan).toHaveBeenCalledOnce();
   expect(readHistory).not.toHaveBeenCalled();
   const authorization = { headers: { Authorization: 'Bearer fixture' } };
   expect((await fetch(base + path, authorization)).status).toBe(503);

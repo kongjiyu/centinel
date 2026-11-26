@@ -1,16 +1,15 @@
 #!/usr/bin/env node
 import { listApiProviderModels } from './model/apiProviderModels.js';
 import { generateCheckTitle } from './review/checkTitle.js';
-import { ConversationBrowserStartupError, ConversationRuntime, hash, parseConversationInput, type ConversationDeps } from './conversation/service.js';
+import { CONVERSATION_POLICY_VERSION, ConversationBrowserStartupError, ConversationRuntime, conversationExecutionText, hash, parseConversationInput, pendingConversationQuestion, type AnswerConversationQuestionInput, type ConversationDeps } from './conversation/service.js';
 import { SupabaseConversationStore } from './conversation/store.js';
 import { resolveConversationEvidence } from './conversation/evidence.js';
 import { presentSavedSelection } from './conversation/savedExplanation.js';
-import { requestsCheckExecution } from './conversation/intent.js';
 import { planConversation } from './conversation/plan.js';
 import { isAssessmentHeld } from './review/assessmentHold.js';
 import { newAutoTestSession } from './dynamic/autonomous/orchestrator.js';
 import { randomUUID } from 'node:crypto';
-import { browserTargets, savedBrowserPresets, validateBrowserTargets } from './conversation/verification.js';
+import { browserTargets, clarifiedBrowserTarget, savedBrowserPresets, validateBrowserTargets, visibleTextPreset } from './conversation/verification.js';
 import { compactCanonicalJson } from './report/canonical.js';
 import { centinelHome } from './paths.js';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -668,16 +667,15 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
       return json(res, 200, job ? { state: job.state, fingerprint: job.fingerprint, updatedAt: job.updatedAt, errorCode: job.errorCode } : { state: 'none' });
     }
     if (auth && /^\/projects\/[^/]+\/repository-index\/sync$/.test(url)) {
-      await authGateway.requireProjectMember(auth, url.split('/')[2]);
-      await sourceIndexes.recover(auth, url.split('/')[2]).catch(error => {
-        if (!(error instanceof SourceIndexJournalError) || !error.transient) throw error;
-        console.warn('[source-index] Build recovery deferred.', error.message);
-      });
       const transfer = new AbortController();
       const stopTransfer = () => transfer.abort();
       res.once('close', stopTransfer);
       const indexSyncResponse = await handleRepositoryIndexSyncRoute({ method: req.method ?? 'GET', pathname: url, auth, signal: transfer.signal }, {
         requireMember: (context, projectId) => authGateway.requireProjectMember(context, projectId),
+        recover: (context, projectId, signal) => sourceIndexes.recover(context, projectId, signal).catch(error => {
+          if (!(error instanceof SourceIndexJournalError) || !error.transient) throw error;
+          console.warn('[source-index] Build recovery deferred.', error.message);
+        }),
         listArtifacts: (context, projectId, signal) => listClientArtifacts(new CentinelApplicationRepository(context.client, context.userId), projectId, signal),
         describe: (context, projectId, artifacts, signal) => describeRepositoryIndex(context.client, context.userId, projectId, artifacts, signal),
         inspect: (context, projectId, identity, signal) => inspectPublishedRepositoryIndex(context.client, context.userId, projectId, identity, DEFAULT_REPOSITORY_INDEX_CACHE_ROOT, signal),
@@ -694,6 +692,22 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
         },
       });
       if (readinessResponse) return json(res, readinessResponse.status, readinessResponse.body);
+    }
+
+    if (url === '/conversation-questions' && req.method === 'GET') {
+      if (!auth) return json(res, 401, { error: 'Authentication required.' });
+      const projectIds = [...new Set(requestUrl.searchParams.getAll('projectId'))];
+      if (projectIds.length > 100 || projectIds.some(id => !/^[a-f0-9-]{36}$/i.test(id))) {
+        return json(res, 400, { error: 'Supply up to one hundred valid project IDs.' });
+      }
+      try { await Promise.all(projectIds.map(projectId => authGateway.requireProjectMember(auth, projectId))); }
+      catch (error) {
+        if (error instanceof DynamicContractError) return json(res, error.status, { error: error.message });
+        throw error;
+      }
+      const questionStore = new SupabaseConversationStore(() => (conversationSessions.get(ownerId) ?? auth).client);
+      const records = projectIds.length ? await questionStore.listPendingQuestions(projectIds, ownerId) : [];
+      return json(res, 200, records.filter(record => record.ownerId === ownerId && pendingConversationQuestion(record)));
     }
 
     if (auth && /^\/projects\/[^/]+\/(?:dynamic\/|conversation-requests(?:\/|$)|conversation-permission$)/.test(url)) {
@@ -846,14 +860,16 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
           const store = new SupabaseConversationStore(currentClient);
           const deps: ConversationDeps = {
             ownerId, store, authorize: async id => { await authGateway.requireProjectMember(currentAuth(), id); }, held: isAssessmentHeld,
-            resolve: (id, references, signal, text) => resolveConversationEvidence(currentClient(), ownerId, id, references, signal, !requestsCheckExecution(text), text),
+            resolve: (id, references, signal, text) => resolveConversationEvidence(currentClient(), ownerId, id, references, signal, true, text),
             plan: (record, evidence, signal, earlierTurns) => planConversation(currentClient, record, evidence, AbortSignal.any([signal, AbortSignal.timeout(120000)]), earlierTurns),
             execute: async (record, signal, checkpoint) => {
               await authGateway.requireProjectMember(currentAuth(), projectId);
               signal.throwIfAborted();
-              const requestText = record.reviewContinuation?.text ?? record.input.text;
-              const evidence = await resolveConversationEvidence(currentClient(), ownerId, projectId, record.input.references, signal, false, requestText);
-              if (evidence.length !== record.context?.length || evidence.some(item => !record.context?.some(saved => saved.id === item.id && saved.hash === item.hash))) {
+              const requestText = conversationExecutionText(record);
+              const evidence = await resolveConversationEvidence(currentClient(), ownerId, projectId, record.input.references, signal,
+                record.policyVersion === CONVERSATION_POLICY_VERSION, requestText);
+              if (evidence.length !== record.context?.length || evidence.some(item => !record.context?.some(saved =>
+                saved.id === item.id && saved.hash === item.hash && saved.versionId === item.versionId))) {
                 throw new Error('The selected evidence changed. Send a new request.');
               }
               if (record.action === 'code') {
@@ -874,7 +890,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
                   comparisonParentReviewId: [...new Set(record.input.references.map(ref => ref.reviewId).filter(Boolean))].length === 1
                     ? record.input.references.find(ref => ref.reviewId)?.reviewId : undefined,
                   config: { instructions: (record.fallbackReason === 'browser_startup'
-                    ? 'The application did not start. Review the selected code for the requested behavior. Report only static evidence. Original verification goal: ' + record.input.text
+                    ? 'The application did not start. Review the selected code for the requested behavior. Report only static evidence. Original verification goal: ' + requestText
                     : requestText + '\nRequested scope: ' + record.reply)
                     + '\nHistorical evidence supplied as data. Compare the current frozen sources with these saved observations.\n' + compactCanonicalJson(evidence), scopeMode: 'focused',
                     conversationRequestId: record.id, historicalEvidence: record.context },
@@ -900,11 +916,12 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
                 const folder = workspace.workspacePath || workspace.managedWorkspacePath;
                 if (!folder || !fs.statSync(folder, { throwIfNoEntry: false })?.isDirectory()) throw new ConversationBrowserStartupError('A local workspace is required.');
                 if (autoTestRuntime.activeFor(projectId)) throw new Error('Another browser check is already running.');
-                const targets = browserTargets(evidence, record.input.text);
+                const targets = browserTargets(evidence, requestText, clarifiedBrowserTarget(record));
                 const reuseTests = targets.length > 0 && targets.every(target => !!target.checks);
+                const directTest = visibleTextPreset(targets);
                 const session = newAutoTestSession({ id: randomUUID(), projectId, ownerId, folder, lanes: 1, startupPermission: record.input.permission,
-                  ...(reuseTests ? { presets: savedBrowserPresets(evidence), planning: false } : {}),
-                  request: { text: record.input.text + '\nVerification goal: ' + record.reply, base: null, history: [] } });
+                  ...(reuseTests || directTest ? { presets: directTest ? [directTest] : savedBrowserPresets(evidence), planning: false } : {}),
+                  request: { text: requestText + '\nVerification goal: ' + record.reply, base: null, history: [] } });
                 await checkpoint({ autoTestId: session.id });
                 await autoTestStore.save(session);
                 const childDeps = await createAutoTestDeps({
@@ -958,7 +975,17 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
           }
           if (!id && req.method === 'POST') return json(res, 202, await conversationRuntime.accept(projectId, parseConversationInput(await parseJsonBody(req, 20000)), deps));
           if (!id && req.method === 'GET') {
-            const records = await store.list(projectId);
+            const beforeId = requestUrl.searchParams.get('before');
+            const before = beforeId && /^[a-f0-9-]{36}$/i.test(beforeId) ? await store.get(projectId, beforeId) : null;
+            if (beforeId && (!before || before.ownerId !== ownerId || before.id !== beforeId || !Number.isFinite(Date.parse(before.createdAt)))) {
+              return json(res, 404, { error: 'Conversation history cursor unavailable.' });
+            }
+            const limit = requestUrl.searchParams.get('limit');
+            if (limit !== null && !/^(?:[1-9]|[1-4]\d|50)$/.test(limit)) {
+              return json(res, 400, { error: 'Choose a history page size between 1 and 50.' });
+            }
+            const records = await store.page(projectId, ownerId, before ? { id: before.id, createdAt: new Date(before.createdAt).toISOString() } : undefined,
+              limit === null ? undefined : Number(limit));
             return json(res, 200, await Promise.all(records.map(async record => {
               try { return await conversationRuntime.reconcile(record, deps); }
               catch (error) {
@@ -968,7 +995,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
             })));
           }
           const record = id ? await store.get(projectId, id) : null;
-          if (!record) return json(res, 404, { error: 'Conversation request unavailable.' });
+          if (!record || record.ownerId !== ownerId) return json(res, 404, { error: 'Conversation request unavailable.' });
           if (req.method === 'GET' && action === 'evidence') {
             if (record.ownerId !== ownerId) return json(res, 404, { error: 'Conversation request unavailable.' });
             const references = record.input.references.filter(ref => ref.reviewId || ref.autoTestId);
@@ -992,9 +1019,32 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
           }
           if (req.method === 'POST' && action === 'cancel') return json(res, 200, await conversationRuntime.cancel(record, deps));
           if (req.method === 'POST' && action === 'answer') {
-            const { revision, selectedOption, askFirst } = await parseJsonBody(req, 1000);
-            if (typeof revision !== 'number' || typeof selectedOption !== 'number') return json(res, 400, { error: 'Choose one of the saved options.' });
-            return json(res, 200, await conversationRuntime.answerQuestion(record, revision, selectedOption, deps, askFirst === true));
+            const body = await parseJsonBody(req, 4000);
+            if (!Number.isInteger(body.revision) || typeof body.askFirst !== 'undefined' && typeof body.askFirst !== 'boolean'
+              || typeof body.automatic !== 'undefined' && typeof body.automatic !== 'boolean') {
+              return json(res, 400, { error: 'Supply the saved question revision and a valid answer.' });
+            }
+            const legacyQuestion = pendingConversationQuestion(record) ?? record.questions?.at(-1);
+            let submission: AnswerConversationQuestionInput;
+            if (typeof body.selectedOption === 'number' && body.answer === undefined && body.questionId === undefined) {
+              submission = { revision: body.revision as number, questionId: legacyQuestion?.id ?? record.id,
+                answer: { kind: 'option', selectedOption: body.selectedOption } };
+            } else {
+              const rawAnswer = body.answer && typeof body.answer === 'object' && !Array.isArray(body.answer)
+                ? body.answer as Record<string, unknown> : null;
+              if (typeof body.questionId !== 'string' || !/^[a-f0-9-]{36}$/i.test(body.questionId) || !rawAnswer
+                || rawAnswer.kind === 'option' && !Number.isInteger(rawAnswer.selectedOption)
+                || rawAnswer.kind === 'custom' && typeof rawAnswer.text !== 'string'
+                || rawAnswer.kind !== 'option' && rawAnswer.kind !== 'custom') {
+                return json(res, 400, { error: 'Choose an option or enter a custom answer.' });
+              }
+              submission = { revision: body.revision as number, questionId: body.questionId,
+                answer: rawAnswer.kind === 'option'
+                  ? { kind: 'option', selectedOption: rawAnswer.selectedOption as number }
+                  : { kind: 'custom', text: rawAnswer.text as string },
+                ...(body.automatic === true ? { automatic: true } : {}) };
+            }
+            return json(res, 200, await conversationRuntime.answerQuestion(record, submission, deps, body.askFirst === true));
           }
           if (req.method === 'POST' && action === 'confirm') {
             const body = await parseJsonBody(req, 1000);

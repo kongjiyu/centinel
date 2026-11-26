@@ -3,6 +3,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { ConversationBrowserStartupError, ConversationRuntime, parseConversationInput, validateConversationPlan, type ConversationDeps } from '../../src/conversation/service.js';
 import type { ConversationRequest, ConversationInput } from '../../src/conversation/types.js';
 import type { ConversationStore } from '../../src/conversation/store.js';
+import { ReviewCancelledError } from '../../src/review/retry.js';
+import { conversationModelRequest } from '../../src/conversation/plan.js';
+import { browserTargets, validateBrowserTargets, visibleTextPreset } from '../../src/conversation/verification.js';
+import { presetToTest } from '../../src/dynamic/autonomous/planner.js';
 
 class MemoryStore implements ConversationStore {
   records = new Map<string, ConversationRequest>();
@@ -48,6 +52,99 @@ async function waitFor(store: MemoryStore, id: string, state: ConversationReques
 }
 
 describe('conversation request harness', () => {
+  it.each([
+    [null, 'The failed Browser assertion count is unavailable.'],
+    [0, 'The Browser Check recorded 0 failed assertions.'],
+  ])('reports the saved Browser count %s without a generated answer', async (failedAssertions, expected) => {
+    const { input, runtime, deps, store } = fixture();
+    vi.mocked(deps.resolve).mockResolvedValue([{ id: 'browser:b1', hash: 'browser', text: JSON.stringify({
+      failedAssertions, tests: failedAssertions === null ? [{ name: 'Checkout', state: 'blocked' }] : [],
+    }) }]);
+    await runtime.accept('project', { ...input, references: [{ autoTestId: 'b1' }],
+      text: 'How many failed Browser assertions can we confirm for this saved combined Check, and what did the Browser leave incomplete?' }, deps);
+    const saved = await waitFor(store, input.id, 'completed');
+    expect(saved.reply?.startsWith(expected)).toBe(true);
+    if (failedAssertions === null) expect(saved.reply).toContain('Checkout · blocked');
+    expect(deps.plan).not.toHaveBeenCalled();
+    expect(deps.execute).not.toHaveBeenCalled();
+  });
+
+  it('accepts an exact quotation across JSON escaping and discards execution scope from explanations', () => {
+    const nativeExcerpt = 'The page displays "Ceramic Mug".';
+    const saved = [{ id: 'browser:b1', text: JSON.stringify({ observation: nativeExcerpt }), hash: 'saved' }];
+    const explanation = { action: 'explain', reply: 'The saved observation names Ceramic Mug.',
+      scope: ['unbound/path.js'], citations: ['browser:b1'], claims: [{ citation: 'browser:b1', excerpt: nativeExcerpt }] };
+    expect(validateConversationPlan(explanation, saved, 'browser').scope).toEqual([]);
+    expect(() => validateConversationPlan({ ...explanation,
+      claims: [{ citation: 'browser:b1', excerpt: 'The page displays "Canvas Bag".' }] }, saved, 'browser')).toThrow();
+  });
+
+  it('offers actions by mode and leaves the action for a saved problem question to the provider', async () => {
+    const { input, store, runtime, deps } = fixture();
+    const record = await runtime.accept('project', { ...input, text: 'Walk me through the saved finding.' }, deps);
+    const schema = conversationModelRequest(record, evidence, []).outputSchema;
+    expect(schema.properties.action.enum).toEqual(['explain', 'suggest', 'clarify', 'code', 'browser']);
+    const code = conversationModelRequest({ ...record, input: { ...record.input, mode: 'code', text: 'Review src' } }, evidence, []);
+    expect(code.outputSchema.properties.action.enum).toEqual(['explain', 'suggest', 'clarify', 'code']);
+    expect(conversationModelRequest({ ...record, input: { ...record.input, replyToTurnId: 'prior' } }, evidence, []).outputSchema.properties.action.enum)
+      .toEqual(['explain', 'suggest', 'clarify']);
+    await waitFor(store, input.id, 'completed');
+    expect(deps.execute).not.toHaveBeenCalled();
+  });
+
+  it('lets the provider propose a scoped Browser check for a request with an introductory phrase', async () => {
+    const { input, runtime, deps, store } = fixture();
+    const project = { id: 'project:project', text: '{"name":"Sample Shop"}', hash: 'inventory' };
+    const text = 'In the Browser, verify that the signed-out Sample Shop catalogue shows "Ceramic Mug" on the home page.';
+    vi.mocked(deps.resolve).mockResolvedValue([project]);
+    vi.mocked(deps.plan).mockResolvedValue({ executionIntent: 'current_request', action: 'browser', reply: 'Check the catalogue on the home page.', citations: [project.id],
+      claims: [{ citation: project.id, excerpt: 'Sample Shop' }], scope: [], questionOptions: ['This extra choice is ignored'] });
+    await runtime.accept('project', { ...input, mode: 'browser', permission: 'ask', text }, deps);
+    const waiting = await waitFor(store, input.id, 'awaiting_permission');
+    expect(waiting).toMatchObject({ action: 'browser' });
+    expect(deps.execute).not.toHaveBeenCalled();
+    await runtime.confirm(waiting, waiting.revision, deps);
+    await waitFor(store, input.id, 'completed');
+    expect(deps.execute).toHaveBeenCalledOnce();
+    const targets = browserTargets([project], text);
+    const preset = visibleTextPreset(targets)!;
+    expect(preset).toMatchObject({ startPath: '/', controls: [], checks: [{ kind: 'visible_text', expected: 'Ceramic Mug' }] });
+    const test = presetToTest(preset, { appUrl: 'http://localhost:4000', projectId: 'project' })!;
+    expect(() => validateBrowserTargets([test], targets)).not.toThrow();
+    expect(() => validateBrowserTargets([{ ...test, controls: [{ selector: 'button', actions: ['click'] }] }], targets)).toThrow();
+  });
+
+  it('uses a file reference for a paraphrase without requiring a verbatim supporting quote', async () => {
+    const { input, runtime, deps, store } = fixture();
+    const file = { id: 'artifact:source', artifactId: 'source', hash: 'file', text: '{"path":"src/products.js","content":"function listProducts() {}"}' };
+    const reply = 'This file defines the product list function.';
+    const plan = { action: 'explain', reply, scope: [], citations: [file.id], claims: [{ citation: file.id, excerpt: 'The product list function' }] };
+    vi.mocked(deps.resolve).mockResolvedValue([file]);
+    vi.mocked(deps.plan).mockResolvedValue(plan);
+    await runtime.accept('project', { ...input, text: 'Use the attached file to explain the product catalog.', references: [{ artifactId: 'source' }] }, deps);
+    expect(await waitFor(store, input.id, 'completed')).toMatchObject({ reply, citations: [file.id] });
+    expect(deps.execute).not.toHaveBeenCalled();
+    expect(() => validateConversationPlan({ ...plan, action: 'code', scope: ['source'] }, [file], 'both')).toThrow();
+    expect(() => validateConversationPlan({ ...plan, citations: ['artifact:other'] }, [file], 'both')).toThrow();
+  });
+
+  it('keeps a clarification question usable when the provider supplies one invalid choice', () => {
+    const reply = 'What text should the page show?';
+    expect(validateConversationPlan({ action: 'clarify', reply, citations: [], scope: [], questionOptions: ['Only choice'] }, [], 'browser'))
+      .toEqual({ action: 'clarify', reply, citations: [], scope: [] });
+  });
+
+  it('lets the provider answer without executing even after locating a named Review scope', async () => {
+    const { input, runtime, deps, store } = fixture();
+    const scope = { id: 'module:project', text: '{"roots":["src"],"rootCount":1,"count":1}', hash: 'module' };
+    vi.mocked(deps.resolve).mockResolvedValue([scope,
+      { id: 'module-source:file', artifactId: 'file', versionId: 'v1', text: '{"path":"src/catalogue.ts"}', hash: 'file' }]);
+    vi.mocked(deps.plan).mockResolvedValue({ executionIntent: null, action: 'explain', reply: 'I found the source folder.',
+      citations: [scope.id], claims: [{ citation: scope.id, excerpt: 'src' }], scope: [] });
+    await runtime.accept('project', { ...input, mode: 'code', text: 'Review src' }, deps);
+    expect(await waitFor(store, input.id, 'completed')).toMatchObject({ action: 'explain', scope: [] });
+    expect(deps.execute).not.toHaveBeenCalled();
+  });
   it('answers an unbound proceed without planning or executing an earlier check', async () => {
     const { input, runtime, deps, store } = fixture();
     await runtime.accept('project', { ...input, text: 'proceed' }, deps);
@@ -56,7 +153,7 @@ describe('conversation request harness', () => {
     expect(deps.execute).not.toHaveBeenCalled();
   });
   it.each([
-    ['Explain this saved check.', 'review:r1', { name: 'Cypress QA', findingCount: 56, findingExamples: [{ title: 'Window interface mismatch' }] }, '56 findings'],
+    ['What did this saved check find?', 'review:r1', { name: 'Cypress QA', findingCount: 56, findingExamples: [{ title: 'Window interface mismatch' }] }, '56 problems'],
     ['Explain what this saved problem means.', 'finding:f1', { title: 'Window interface mismatch', description: 'The declared property name differs.', path: 'support.ts' }, 'The original source excerpt is unavailable'],
     ['Explain what happened to this problem, how it works', 'finding:f1', { title: 'Window interface mismatch', description: 'The declared property name differs.', excerpt: 'interface Window {}' }, 'interface Window {}'],
     ['What happend to this issue?', 'finding:f1', { title: 'Window interface mismatch', description: 'The declared property name differs.' }, 'The original source excerpt is unavailable'],
@@ -72,6 +169,132 @@ describe('conversation request harness', () => {
     expect(deps.execute).not.toHaveBeenCalled();
   });
 
+  it('summarizes one saved Check as status bullets without planning or executing', async () => {
+    const { input, runtime, deps, store } = fixture();
+    vi.mocked(deps.resolve).mockResolvedValue([
+      { id: 'review:r1', hash: 'code', text: JSON.stringify({ name: 'Catalogue', status: 'pending_approval', findingCount: 2, coverageIncomplete: true }) },
+      { id: 'browser:b1', hash: 'browser', text: JSON.stringify({ stage: 'completed', failedAssertions: 1 }) },
+    ]);
+    await runtime.accept('project', { ...input, text: 'Where are we at now?', references: [{ reviewId: 'r1', autoTestId: 'b1' }] }, deps);
+    const saved = await waitFor(store, input.id, 'completed');
+    expect(saved).toMatchObject({ action: 'explain', replyFormat: 'markdown', citations: ['review:r1', 'browser:b1'] });
+    expect(saved.reply).toContain('- **Code** — review ended · 2 saved findings.');
+    expect(saved.reply).toContain('- **Browser** — check ended · 1 failed assertion');
+    expect(saved.reply).toContain('- **Still open**');
+    expect(deps.plan).not.toHaveBeenCalled();
+    expect(deps.execute).not.toHaveBeenCalled();
+  });
+
+  it('answers a standard attached Check overview from the saved records without a provider', async () => {
+    const { input, runtime, deps, store } = fixture();
+    vi.mocked(deps.resolve).mockResolvedValue([
+      { id: 'review:r1', hash: 'code', text: JSON.stringify({ name: 'Catalogue', objective: 'Check the catalogue', findingCount: 2 }) },
+      { id: 'browser:b1', hash: 'browser', text: JSON.stringify({ failedAssertions: 1, tests: [] }) },
+    ]);
+    await runtime.accept('project', { ...input, text: 'Explain the attached check.', references: [{ reviewId: 'r1', autoTestId: 'b1' }] }, deps);
+    const saved = await waitFor(store, input.id, 'completed');
+    expect(saved).toMatchObject({ action: 'explain', replyOrigin: 'saved_evidence', replyFormat: 'markdown',
+      reply: 'The saved Code check recorded 2 problems. The Browser-proven problem count is unavailable. The saved Browser check recorded 1 failed Browser assertion.',
+      citations: ['review:r1', 'browser:b1'] });
+    expect(saved.explanation?.sections[0]).toMatchObject({ presentation: 'check', check: { code: { problemCount: 2 } } });
+    expect(saved.explanation?.sections[1]).toMatchObject({ presentation: 'check', check: { browser: { failedAssertionCount: 1 } } });
+    expect(deps.plan).not.toHaveBeenCalled();
+    expect(deps.execute).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['What was the objective?', 'Objective unavailable.'],
+    ['What was the Code objective?', 'Objective unavailable.'],
+  ])('answers a direct saved-Check objective question deterministically: %s', async (text, answer) => {
+    const { input, runtime, deps, store } = fixture();
+    vi.mocked(deps.resolve).mockResolvedValue([{ id: 'review:r1', hash: 'saved',
+      text: JSON.stringify({ name: 'Catalogue', status: 'completed' }) }]);
+    await runtime.accept('project', { ...input, text, references: [{ reviewId: 'r1' }] }, deps);
+    const saved = await waitFor(store, input.id, 'completed');
+    expect(saved).toMatchObject({ action: 'explain', replyOrigin: 'saved_evidence', replyFormat: 'markdown',
+      reply: answer, citations: ['review:r1'] });
+    expect(saved.explanation?.sections[0]).toMatchObject({ presentation: 'check', check: { objectiveUnavailable: true } });
+    expect(deps.plan).not.toHaveBeenCalled();
+    expect(deps.execute).not.toHaveBeenCalled();
+  });
+
+  it('keeps other fields in scope when an unavailable objective is part of a multi-part question', async () => {
+    const { input, runtime, deps, store } = fixture();
+    vi.mocked(deps.resolve).mockResolvedValue([{ id: 'review:r1', hash: 'saved',
+      text: JSON.stringify({ name: 'Catalogue', status: 'completed', qualityEvidence: [
+        { quality: 'Security', impact: 'The saved route does not check who owns this cart.' },
+      ] }) }]);
+    vi.mocked(deps.plan).mockRejectedValue(new ReviewCancelledError('Planner deadline reached'));
+    await runtime.accept('project', { ...input,
+      text: 'What was the objective, and what security impact was saved?', references: [{ reviewId: 'r1' }] }, deps);
+    const saved = await waitFor(store, input.id, 'completed');
+    expect(saved).toMatchObject({ replyOrigin: 'saved_evidence', answerUnavailable: true, citations: ['review:r1'] });
+    expect(saved.reply).toContain('The saved objective is unavailable.');
+    expect(saved.reply).toContain('The saved route does not check who owns this cart.');
+    expect(deps.plan).toHaveBeenCalledOnce();
+    expect(deps.execute).not.toHaveBeenCalled();
+  });
+
+  it('shows the original attached problem and recommendation for a standard overview', async () => {
+    const { input, runtime, deps, store } = fixture();
+    vi.mocked(deps.resolve).mockResolvedValue([{ id: 'finding:f1', hash: 'saved',
+      text: JSON.stringify({ title: 'Display mismatch', description: 'The saved display differs.', path: 'src/cart.ts',
+        excerpt: 'renderTotal()', recommendation: 'Use the computed total.' }) }]);
+    await runtime.accept('project', { ...input, text: 'Explain the attached problem.',
+      references: [{ reviewId: 'r1', findingId: 'f1' }] }, deps);
+    expect(await waitFor(store, input.id, 'completed')).toMatchObject({ replyOrigin: 'saved_evidence',
+      explanation: { sections: [{ evidenceId: 'finding:f1', excerpt: 'renderTotal()',
+        points: ['Saved recommendation: Use the computed total.'] }] } });
+    expect(deps.plan).not.toHaveBeenCalled();
+    expect(deps.execute).not.toHaveBeenCalled();
+  });
+
+  it('asks for observable behavior when a Browser request supplies no scope or assertion', async () => {
+    const { input, runtime, deps, store } = fixture();
+    await runtime.accept('project', { ...input, mode: 'browser', text: 'Run a Browser check.' }, deps);
+    expect(await waitFor(store, input.id, 'completed')).toMatchObject({ action: 'clarify', reply: expect.stringContaining('what should the page show') });
+    expect(deps.plan).not.toHaveBeenCalled();
+    expect(deps.execute).not.toHaveBeenCalled();
+  });
+
+  it('keeps a read-only saved result visible when the planner deadline expires', async () => {
+    const { input, runtime, deps, store } = fixture();
+    vi.mocked(deps.resolve).mockResolvedValue([{ id: 'review:r1', hash: 'saved',
+      text: JSON.stringify({ name: 'Catalogue', objective: 'Check the catalogue', status: 'blocked', findingCount: 0 }) }]);
+    vi.mocked(deps.plan).mockRejectedValue(new ReviewCancelledError('Planner deadline reached'));
+    await runtime.accept('project', { ...input, text: 'What quality attributes did this check cover?', references: [{ reviewId: 'r1' }] }, deps);
+    const saved = await waitFor(store, input.id, 'completed');
+    expect(saved).toMatchObject({ action: 'explain', replyOrigin: 'saved_evidence', answerUnavailable: true, citations: ['review:r1'] });
+    expect(saved.explanation?.sections[0]).toMatchObject({ presentation: 'check', check: { code: { problemCount: 0 } } });
+    expect(deps.execute).not.toHaveBeenCalled();
+  });
+
+  it('recalls a relevant older turn as cited discussion with compact Check context', async () => {
+    const { input, runtime, deps, store } = fixture();
+    const oldId = randomUUID();
+    const old: ConversationRequest = { id: oldId, revision: 1, projectId: 'project', ownerId: 'owner',
+      state: 'completed', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:01Z', inputHash: 'saved',
+      input: { ...input, id: oldId, text: 'The catalogue Check should use the copper fixture.',
+        references: [{ checkId: randomUUID(), checkFocus: 'Check the catalogue', reviewId: randomUUID() }] },
+      reply: 'x'.repeat(1000) + ' Use the copper fixture. ' + 'y'.repeat(1000) };
+    store.records.set(oldId, old);
+    for (let index = 1; index <= 8; index++) {
+      const id = randomUUID();
+      const createdAt = `2026-01-0${index + 1}T00:00:00Z`;
+      store.records.set(id, { ...old, id, createdAt, updatedAt: createdAt,
+        input: { ...input, id, text: 'Other discussion', references: [] }, reply: 'Other answer' });
+    }
+    deps.store.findEarlierCompleted = vi.fn().mockResolvedValue([old]);
+    vi.mocked(deps.plan).mockResolvedValue({ action: 'explain', reply: 'Use the copper fixture.', citations: ['conversation:' + oldId],
+      claims: [{ citation: 'conversation:' + oldId, excerpt: 'Use the copper fixture.' }], scope: [] });
+    await runtime.accept('project', { ...input, text: 'What did you say earlier about the copper fixture?' }, deps);
+    expect(await waitFor(store, input.id, 'completed')).toMatchObject({ citations: ['conversation:' + oldId], scope: [] });
+    const recalled = vi.mocked(deps.plan).mock.calls[0][3].find(item => item.id === 'conversation:' + oldId)!;
+    expect(JSON.parse(recalled.text)).toMatchObject({ excerptsOnly: true, checks: [{ focus: 'Check the catalogue' }] });
+    expect(recalled.text).not.toContain(old.input.references[0].reviewId);
+    expect(deps.execute).not.toHaveBeenCalled();
+  });
+
   it('generates a question-specific answer alongside the original problem details', async () => {
     const { input, runtime, deps, store } = fixture();
     const saved = { id: 'finding:f1', hash: 'saved', text: JSON.stringify({ title: 'Sign-in issue', path: 'src/auth/login.ts', originalStatus: 'new' }) };
@@ -84,6 +307,91 @@ describe('conversation request harness', () => {
     expect(deps.execute).not.toHaveBeenCalled();
   });
 
+  it('continues a Browser clarification from custom user criteria and still waits for Ask first', async () => {
+    const { input, runtime, deps, store } = fixture();
+    const saved = { id: 'finding:f1', hash: 'saved', artifactId: 'source-1', versionId: 'v1',
+      text: JSON.stringify({ path: 'src/auth/login.ts', title: 'Sign-in issue', requirement: { description: 'Users can sign in to the store.' } }) };
+    vi.mocked(deps.resolve).mockResolvedValue([saved]);
+    vi.mocked(deps.plan)
+      .mockResolvedValueOnce({ action: 'clarify', reply: 'What should the page show?', questionOptions: ['Run a Browser check', 'Keep explaining'], citations: [], scope: [] })
+      .mockResolvedValueOnce({ executionIntent: 'current_request', action: 'browser', reply: 'Check the saved sign-in behavior.', citations: ['finding:f1'], scope: [],
+        claims: [{ citation: 'finding:f1', excerpt: 'src/auth/login.ts' }] });
+    await runtime.accept('project', { ...input, text: 'Check this issue', mode: 'browser', permission: 'auto', references: [{ reviewId: 'r1', findingId: 'f1' }] }, deps);
+    const question = await waitFor(store, input.id, 'completed');
+    const questionId = question.pendingQuestionId!;
+    await runtime.answerQuestion(question, { revision: question.revision, questionId,
+      answer: { kind: 'custom', text: 'Run a Browser check and confirm the page shows "Welcome back".' } }, deps, true);
+    const waiting = await waitFor(store, input.id, 'awaiting_permission');
+    expect(waiting).toMatchObject({ action: 'browser', input: { permission: 'ask' }, continuation: {
+      questionId, answerKind: 'custom', answer: 'Run a Browser check and confirm the page shows "Welcome back".' },
+      questions: [{ answer: { automatic: false, kind: 'custom' } }] });
+    expect(deps.execute).not.toHaveBeenCalled();
+    await runtime.confirm(waiting, waiting.revision, deps);
+    await waitFor(store, input.id, 'completed');
+    expect(deps.execute).toHaveBeenCalledOnce();
+    expect(deps.execute.mock.calls[0][0].action).toBe('browser');
+  });
+
+  it('resumes a Browser-only question with a manually supplied visible-text criterion and no attachment', async () => {
+    const { input, runtime, deps, store } = fixture();
+    vi.mocked(deps.resolve).mockResolvedValue([{ id: 'project:project', text: '{"name":"Sample Shop"}', hash: 'project' }]);
+    vi.mocked(deps.plan).mockResolvedValue({ executionIntent: 'custom_answer', action: 'browser', reply: 'Check the catalogue.', citations: ['project:project'],
+      claims: [{ citation: 'project:project', excerpt: 'Sample Shop' }], scope: [] });
+    await runtime.accept('project', { ...input, mode: 'browser', text: 'Run a browser check', references: [] }, deps);
+    const question = await waitFor(store, input.id, 'completed');
+    await runtime.answerQuestion(question, { revision: question.revision, questionId: question.pendingQuestionId!,
+      answer: { kind: 'custom', text: 'Test the signed-out catalog and verify it shows "Ceramic Mug".' } }, deps);
+    const finished = await waitFor(store, input.id, 'completed');
+    expect(finished).toMatchObject({ action: 'browser', continuation: { answerKind: 'custom' }, questions: [{ answer: { kind: 'custom' } }] });
+    expect(deps.plan).toHaveBeenCalledOnce();
+    expect(deps.execute).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ['Describe this issue', false],
+    ['Check this issue', true],
+  ])('does not let an automatic option create execution intent or the only Browser criterion (%s)', async (text, explicitRequest) => {
+    const { input, runtime, deps, store } = fixture();
+    const saved = { id: 'finding:f1', hash: 'saved', artifactId: 'source-1', versionId: 'v1',
+      text: JSON.stringify({ path: 'src/auth/login.ts', title: 'Sign-in issue', requirement: { description: 'Users can sign in to the store.' } }) };
+    vi.mocked(deps.resolve).mockResolvedValue([saved]);
+    vi.mocked(deps.plan)
+      .mockResolvedValueOnce({ action: 'clarify', reply: 'Choose a Browser verification.', questionOptions: [
+        'Run a Browser check and verify the page shows "Forged"', 'Ask me what the page should show'], citations: [], scope: [] })
+      .mockResolvedValueOnce({ executionIntent: 'custom_answer', action: 'browser', reply: 'Run the suggested Browser check.', citations: ['finding:f1'], scope: [],
+        claims: [{ citation: 'finding:f1', excerpt: 'src/auth/login.ts' }] });
+    await runtime.accept('project', { ...input, text, mode: 'browser', permission: 'auto', references: [{ reviewId: 'r1', findingId: 'f1' }] }, deps);
+    const question = await waitFor(store, input.id, 'completed');
+    await runtime.answerQuestion(question, { revision: question.revision, questionId: question.pendingQuestionId!,
+      answer: { kind: 'option', selectedOption: 0 }, automatic: true }, deps);
+    const resumed = await waitFor(store, input.id, 'completed');
+    expect(resumed.questions?.[0].answer).toMatchObject({ automatic: true, kind: 'option' });
+    expect(resumed.action).toBe('clarify');
+    expect(resumed.pendingQuestionId).toBeTruthy();
+    expect(deps.execute).not.toHaveBeenCalled();
+    expect(explicitRequest || text === 'Describe this issue').toBe(true);
+  });
+
+  it('uses question ID and revision CAS so a manual answer racing the timeout starts one continuation', async () => {
+    const { input, runtime, deps, store } = fixture();
+    vi.mocked(deps.plan).mockResolvedValueOnce({ action: 'clarify', reply: 'Which option should I use?',
+      questionOptions: ['Use the first path', 'Use the second path'], citations: [], scope: [] });
+    await runtime.accept('project', { ...input, text: 'Describe this issue' }, deps);
+    const question = await waitFor(store, input.id, 'completed');
+    const submission = (request: ConversationRequest, answer: { kind: 'option'; selectedOption: number } | { kind: 'custom'; text: string }, automatic = false) =>
+      runtime.answerQuestion(request, { revision: question.revision, questionId: question.pendingQuestionId!, answer, automatic }, deps);
+    const results = await Promise.allSettled([
+      submission(structuredClone(question), { kind: 'option', selectedOption: 0 }, true),
+      submission(structuredClone(question), { kind: 'custom', text: 'Use a different safe option.' }),
+    ]);
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter(result => result.status === 'rejected')).toHaveLength(1);
+    const saved = await waitFor(store, input.id, 'completed');
+    expect(saved.questions).toHaveLength(1);
+    expect(saved.questions?.[0].answer).toBeDefined();
+    expect(deps.plan).toHaveBeenCalledTimes(2);
+  });
+
   it.each(['code', 'browser'] as const)('handles an explicit module Review in %s mode without expanding its file scope', async mode => {
     const { input, runtime, deps, store } = fixture();
     vi.mocked(deps.resolve).mockResolvedValue([
@@ -91,18 +399,20 @@ describe('conversation request harness', () => {
       { id: 'module-source:a', artifactId: 'a', versionId: 'v1', text: '{"path":"cypress/example.ts"}', hash: 'file' },
       { id: 'other', artifactId: 'b', text: '{}', hash: 'other' },
     ]);
+    vi.mocked(deps.plan).mockResolvedValue({ executionIntent: 'current_request', action: 'code' });
     await runtime.accept('project', { ...input, mode, permission: 'ask', text: 'conduct a review on automation module' }, deps);
     const saved = await waitFor(store, input.id, mode === 'code' ? 'awaiting_permission' : 'completed');
     expect(saved).toMatchObject(mode === 'code' ? { action: 'code', scope: ['a'], reply: expect.stringContaining('cypress') }
       : { action: 'clarify', scope: [], questionOptions: ['Code review only', 'Keep Browser mode'] });
     expect(deps.execute).not.toHaveBeenCalled();
-    expect(deps.plan).not.toHaveBeenCalled();
+    expect(deps.plan).toHaveBeenCalledTimes(mode === 'code' ? 1 : 0);
     let waiting = saved;
     if (mode === 'browser') {
-      await runtime.answerQuestion(saved, saved.revision, 0, deps);
+      const questionId = saved.pendingQuestionId!;
+      await runtime.answerQuestion(saved, { revision: saved.revision, questionId, answer: { kind: 'option', selectedOption: 0 } }, deps);
       waiting = await waitFor(store, input.id, 'awaiting_permission');
       expect(waiting).toMatchObject({ action: 'code', scope: ['a'], selectedOption: 0, reviewContinuation: { sourceRequestId: input.id } });
-      await runtime.answerQuestion(waiting, saved.revision, 0, deps);
+      await runtime.answerQuestion(waiting, { revision: saved.revision, questionId, answer: { kind: 'option', selectedOption: 0 } }, deps);
       expect(deps.resolve).toHaveBeenCalledTimes(2);
     }
     await runtime.confirm(waiting, waiting.revision, deps);
@@ -116,17 +426,19 @@ describe('conversation request harness', () => {
       { id: 'module:project', text: '{"roots":["cypress"],"rootCount":1,"count":1}', hash: 'module' },
       { id: 'module-source:a', artifactId: 'a', text: '{}', hash: 'file' },
     ]);
+    vi.mocked(deps.plan).mockResolvedValue({ executionIntent: 'current_request', action: 'code' });
     await runtime.accept('project', { ...input, mode: 'browser', permission: 'auto', text: 'Review cypress' }, deps);
     const question = await waitFor(store, input.id, 'completed');
-    await runtime.answerQuestion(question, question.revision, 0, deps, askFirst);
+    await runtime.answerQuestion(question, { revision: question.revision, questionId: question.pendingQuestionId!,
+      answer: { kind: 'option', selectedOption: 0 } }, deps, askFirst);
     await waitFor(store, input.id, askFirst ? 'awaiting_permission' : 'completed');
     expect(deps.execute).toHaveBeenCalledTimes(askFirst ? 0 : 1);
-    expect(deps.plan).not.toHaveBeenCalled();
+    expect(deps.plan).toHaveBeenCalledOnce();
   });
   it.each(['auto', 'ask'] as const)('uses only the bound source for a Code fallback after Browser startup failure (%s)', async permission => {
     const { input, runtime, deps, store } = fixture();
     const actions: string[] = [];
-    vi.mocked(deps.plan).mockResolvedValue({ action: 'browser', reply: 'Check the sign-in error.', citations: ['finding:f1'], claims: [{ citation: 'finding:f1', excerpt: 'Expected the generic sign-in error.' }], scope: [] });
+    vi.mocked(deps.plan).mockResolvedValue({ executionIntent: 'current_request', action: 'browser', reply: 'Check the sign-in error.', citations: ['finding:f1'], claims: [{ citation: 'finding:f1', excerpt: 'Expected the generic sign-in error.' }], scope: [] });
     vi.mocked(deps.execute).mockImplementation(async (record, _signal, checkpoint) => {
       actions.push(record.action!);
       if (record.action === 'browser') {
@@ -152,7 +464,7 @@ describe('conversation request harness', () => {
   it.each([['browser', 'Run a browser test for sign-in'], ['both', 'Run a browser test for sign-in, no Code review']] as const)(
     'keeps a Browser-only request in its requested mode after startup failure (%s)', async (mode, text) => {
     const { input, runtime, deps, store } = fixture();
-    vi.mocked(deps.plan).mockResolvedValue({ action: 'browser', reply: 'Check the sign-in error.', citations: ['finding:f1'], claims: [{ citation: 'finding:f1', excerpt: 'Expected the generic sign-in error.' }], scope: [] });
+    vi.mocked(deps.plan).mockResolvedValue({ executionIntent: 'current_request', action: 'browser', reply: 'Check the sign-in error.', citations: ['finding:f1'], claims: [{ citation: 'finding:f1', excerpt: 'Expected the generic sign-in error.' }], scope: [] });
     vi.mocked(deps.execute).mockRejectedValue(new ConversationBrowserStartupError('App unavailable'));
     await runtime.accept('project', { ...input, mode, text }, deps);
     expect(await waitFor(store, input.id, 'failed')).toMatchObject({ action: 'browser' });
@@ -161,7 +473,7 @@ describe('conversation request harness', () => {
 
   it('blocks a model proposal for Browser when the person explicitly requests a Code check in combined mode', async () => {
     const { input, runtime, deps, store } = fixture();
-    vi.mocked(deps.plan).mockResolvedValue({ action: 'browser', reply: 'Check the sign-in error.', citations: ['finding:f1'], claims: [{ citation: 'finding:f1', excerpt: 'Expected the generic sign-in error.' }], scope: [] });
+    vi.mocked(deps.plan).mockResolvedValue({ executionIntent: 'current_request', action: 'browser', reply: 'Check the sign-in error.', citations: ['finding:f1'], claims: [{ citation: 'finding:f1', excerpt: 'Expected the generic sign-in error.' }], scope: [] });
     await runtime.accept('project', { ...input, text: 'Run a code check for the sign-in error' }, deps);
     expect(await waitFor(store, input.id, 'completed')).toMatchObject({ action: 'clarify' });
     expect(deps.execute).not.toHaveBeenCalled();
@@ -170,7 +482,7 @@ describe('conversation request harness', () => {
   it('asks for a narrower scope instead of silently rerunning a subset of a whole large Review', async () => {
     const { input, runtime, deps, store } = fixture();
     vi.mocked(deps.resolve).mockResolvedValue([...evidence, { id: 'review:r1', hash: 'r1', text: '{"omittedSourceCount":11}' }]);
-    vi.mocked(deps.plan).mockResolvedValue({ action: 'code', reply: 'Verify this Review.', citations: ['finding:f1'], scope: ['source-1'], claims: [{ citation: 'finding:f1', excerpt: 'Expected the generic sign-in error.' }] });
+    vi.mocked(deps.plan).mockResolvedValue({ executionIntent: 'current_request', action: 'code', reply: 'Verify this Review.', citations: ['finding:f1'], scope: ['source-1'], claims: [{ citation: 'finding:f1', excerpt: 'Expected the generic sign-in error.' }] });
     await runtime.accept('project', { ...input, text: 'Run a code check for the attached Review' }, deps);
     expect(await waitFor(store, input.id, 'completed')).toMatchObject({ action: 'clarify', reply: expect.stringContaining('more source files') });
     expect(deps.execute).not.toHaveBeenCalled();
@@ -412,7 +724,7 @@ describe('conversation request harness', () => {
   it('requires the exact reviewed revision for Ask first and admits one child', async () => {
     const { store, runtime, deps, input } = fixture();
     input.text = 'Run a code check for this problem';
-    vi.mocked(deps.plan).mockResolvedValue({ action: 'code', reply: 'Verify the sign-in error.', citations: ['finding:f1'], claims: [{ citation: 'finding:f1', excerpt: 'Expected the generic sign-in error.' }], scope: ['source-1'] });
+    vi.mocked(deps.plan).mockResolvedValue({ executionIntent: 'current_request', action: 'code', reply: 'Verify the sign-in error.', citations: ['finding:f1'], claims: [{ citation: 'finding:f1', excerpt: 'Expected the generic sign-in error.' }], scope: ['source-1'] });
     await runtime.accept('project', { ...input, permission: 'ask' }, deps);
     const pending = await waitFor(store, input.id, 'awaiting_permission');
     expect(deps.execute).not.toHaveBeenCalled();
@@ -429,7 +741,7 @@ describe('conversation request harness', () => {
     await runtime.accept('project', input, deps);
     await vi.waitFor(() => expect(deps.plan).toHaveBeenCalledOnce());
     await runtime.permission('project', 'ask', deps);
-    resolve({ action: 'browser', reply: 'Test the sign-in error.', citations: ['finding:f1'], claims: [{ citation: 'finding:f1', excerpt: 'Expected the generic sign-in error.' }], scope: [] });
+    resolve({ executionIntent: 'current_request', action: 'browser', reply: 'Test the sign-in error.', citations: ['finding:f1'], claims: [{ citation: 'finding:f1', excerpt: 'Expected the generic sign-in error.' }], scope: [] });
     await waitFor(store, input.id, 'awaiting_permission');
     expect(deps.execute).not.toHaveBeenCalled();
   });
@@ -440,7 +752,7 @@ describe('conversation request harness', () => {
     await runtime.accept('project', input, deps);
     await vi.waitFor(() => expect(deps.plan).toHaveBeenCalledOnce());
     await runtime.cancel((await store.get('project', input.id))!, deps);
-    resolve({ action: 'browser', reply: 'Test the sign-in error.', citations: ['finding:f1'], claims: [{ citation: 'finding:f1', excerpt: 'Expected the generic sign-in error.' }], scope: [] });
+    resolve({ executionIntent: 'current_request', action: 'browser', reply: 'Test the sign-in error.', citations: ['finding:f1'], claims: [{ citation: 'finding:f1', excerpt: 'Expected the generic sign-in error.' }], scope: [] });
     await runtime.close();
     expect(store.records.get(input.id)?.state).toBe('cancelled');
     expect(deps.execute).not.toHaveBeenCalled();
@@ -461,7 +773,8 @@ describe('conversation request harness', () => {
   it('retains a child reference across final persistence failure without relaunch', async () => {
     const { store, runtime, deps, input } = fixture();
     input.text = 'Run a browser test';
-    vi.mocked(deps.plan).mockResolvedValue({ action: 'browser', reply: 'Test sign-in.', citations: ['finding:f1'], claims: [{ citation: 'finding:f1', excerpt: 'Expected the generic sign-in error.' }], scope: [] });
+    input.references = [{ reviewId: 'r1', findingId: 'f1' }];
+    vi.mocked(deps.plan).mockResolvedValue({ executionIntent: 'current_request', action: 'browser', reply: 'Test sign-in.', citations: ['finding:f1'], claims: [{ citation: 'finding:f1', excerpt: 'Expected the generic sign-in error.' }], scope: [] });
     vi.mocked(deps.execute).mockImplementation(async (_record, _signal, checkpoint) => {
       await checkpoint({ autoTestId: 'child' });
       store.failUpdate = true;
@@ -486,7 +799,7 @@ describe('conversation request harness', () => {
   });
   it('asks for intent when the model proposes a run for an explanation request', async () => {
     const { store, runtime, deps, input } = fixture();
-    vi.mocked(deps.plan).mockResolvedValue({ action: 'browser', reply: 'Test sign-in.', citations: ['finding:f1'], claims: [{ citation: 'finding:f1', excerpt: 'Expected the generic sign-in error.' }], scope: [] });
+    vi.mocked(deps.plan).mockResolvedValue({ executionIntent: null, action: 'browser', reply: 'Test sign-in.', citations: ['finding:f1'], claims: [{ citation: 'finding:f1', excerpt: 'Expected the generic sign-in error.' }], scope: [] });
     await runtime.accept('project', input, deps);
     const saved = await waitFor(store, input.id, 'completed');
     expect(saved.action).toBe('clarify');
@@ -502,9 +815,10 @@ describe('conversation request harness', () => {
   it('cancels a running request when permissions become restrictive before its next action', async () => {
     const { store, runtime, deps, input } = fixture();
     input.text = 'Run a browser test';
+    input.references = [{ reviewId: 'r1', findingId: 'f1' }];
     let proceed!: () => void;
     let admitted = false;
-    vi.mocked(deps.plan).mockResolvedValue({ action: 'browser', reply: 'Test sign-in.', citations: ['finding:f1'],
+    vi.mocked(deps.plan).mockResolvedValue({ executionIntent: 'current_request', action: 'browser', reply: 'Test sign-in.', citations: ['finding:f1'],
       claims: [{ citation: 'finding:f1', excerpt: 'Expected the generic sign-in error.' }], scope: [] });
     vi.mocked(deps.execute).mockImplementation(async (_record, signal) => {
       await new Promise<void>(done => { proceed = done; });

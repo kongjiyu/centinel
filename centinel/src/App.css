@@ -3560,6 +3560,10 @@ body {
   -webkit-backdrop-filter: blur(6px);
 }
 
+.modal-overlay.modal-overlay-app-blur {
+  background: rgb(255 255 255 / 28%);
+}
+
 .modal {
   box-sizing: border-box;
   max-width: calc(100vw - 32px);

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { handleRepositoryIndexSyncRoute } from '../../src/review/repositoryIndexSyncRoutes.js';
+import { ApplicationRepositoryError } from '../../src/applicationRepository.js';
 import type { AuthenticatedRequest } from '../../src/auth/index.js';
 import type { RepositoryIndexIdentity } from '../../src/review/repositoryIndexSnapshot.js';
 
@@ -11,6 +12,15 @@ function dependencies() {
     sync: vi.fn(async () => ({ state: 'prefetched' as const, fingerprint: identity.fingerprint })) };
 }
 describe('repository index sync HTTP contract', () => {
+  it('reports oversized background recovery as incompatible without starting archive transfer', async () => {
+    const deps = dependencies();
+    const error = new ApplicationRepositoryError('Choose a narrower scope.', 'repository_index_scope_too_large', 422);
+    const recover = vi.fn().mockRejectedValue(error);
+    await expect(handleRepositoryIndexSyncRoute({ auth, method: 'POST', pathname: '/projects/p/repository-index/sync' }, { ...deps, recover }))
+      .resolves.toEqual({ status: 200, body: { state: 'incompatible', errorCode: error.code, detail: error.message } });
+    expect(deps.listArtifacts).not.toHaveBeenCalled();
+    expect(deps.sync).not.toHaveBeenCalled();
+  });
   it('returns promptly on cancellation even when a metadata dependency ignores abort', async () => {
     const deps = dependencies(); const controller = new AbortController();
     let release!: () => void;

@@ -165,6 +165,7 @@ export type StoreFinding = {
   confidence: string;
   artifactId: string | null;
   artifactVersionId: string | null;
+  sourceVersion?: string;
   evidenceId: string | null;
   requirementId: string | null;
   standardId: string | null;

@@ -9,22 +9,29 @@ export function namedReviewScope(text: string) {
   return match?.[1].toLowerCase().replace(/^\.\//, '').replace(/\/$/, '');
 }
 
-export function requestsCheckExecution(text: string) {
-  if (namedReviewScope(text)) return true;
-  const request = text.trim().replace(/^(?:please\s+|(?:can|could|would)\s+you\s+)/i, '');
-  return /^(?:run|rerun|re-run|test|retest|recheck|verify|check)\b/i.test(request)
-    && !/^(?:run|test|check|verify)\s+(?:suggestions?|ideas?|options?)\b/i.test(request);
-}
-
 export function asksForUnscopedReview(text: string) {
   return unscopedReview.test(text.trim());
+}
+
+export function asksForProjectStatus(text: string) {
+  return /^(?:where (?:are )?we(?: at)?(?: now)?|(?:(?:what(?:'s| is) (?:the |our )?|show me the )?(?:current |project )?)status(?: now)?)[?.!\s]*$/i.test(text.trim());
+}
+
+export function requestsFullCheck(text: string) {
+  return /^(?:(?:please|can you|could you|would you)\s+)*(?:run|start|conduct)\s+(?:(?:a|the)\s+full\s+check|both(?:\s+checks)?|code\s+(?:and|\+)\s+browser(?:\s+checks?)?)[.!?]?$/i.test(text.trim());
+}
+
+export function asksForUnscopedBrowserCheck(text: string) {
+  return /^(?:(?:please|can you|could you|would you)\s+)*(?:run|start|conduct)\s+(?:(?:a|the)\s+)?browser\s+(?:check|test)[.!?]?$/i.test(text.trim());
 }
 
 export function conversationApproval(text: string): 'any' | 'code' | null {
   const match = /^(?:please\s+)?(?:proceed|go ahead)(?:\s+(?:with|in)\s+(code)(?:\s+review)?(?:\s+only)?(?:\s+first)?)?[.!]?$/i.exec(text.trim());
   return match ? (match[1] ? 'code' : 'any') : null;
 }
-export function conversationQuestionOptions(request: Pick<ConversationRequest, 'action' | 'reply' | 'questionOptions' | 'reviewContinuation'>) {
+export function conversationQuestionOptions(request: Pick<ConversationRequest, 'action' | 'reply' | 'questionOptions' | 'reviewContinuation' | 'questions' | 'pendingQuestionId'>) {
+  const pending = request.pendingQuestionId && request.questions?.find(question => question.id === request.pendingQuestionId && !question.answer);
+  if (pending) return pending.options;
   if (request.reviewContinuation) return request.questionOptions ?? [];
   if (!request.reply) return [];
   if (request.action === 'clarify' && request.questionOptions?.length) return request.questionOptions;

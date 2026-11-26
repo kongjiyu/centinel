@@ -3,12 +3,13 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../../api/client';
 import type { AutoTestEntry, AutoTestSession } from '../../autotest/types';
+import type { ConversationRequest } from '../../check/conversationTypes';
 import { readPrefs, resetProjectPrefs } from '../../check/projectPrefs';
 import { resetCheckStore, saveCheck } from '../../check/store';
 import type { Project } from '../../types';
 import { checkSentence, friendlyError, goalSteps, ProjectConversationScreen, testChanges } from './ProjectConversationScreen';
 
-vi.mock('../../api/client', () => ({ api: { autoTests: vi.fn(), autoTest: vi.fn(), getConnectedSourceStatus: vi.fn().mockResolvedValue({ connected: true, sources: [] }), listArtifacts: vi.fn(), startAutoTest: vi.fn(), cancelAutoTest: vi.fn(), listStaticSessions: vi.fn(), listStaticFindings: vi.fn(), listRequirements: vi.fn(), listRequirementCandidates: vi.fn(), updateRequirement: vi.fn(), listConnectedSources: vi.fn(), retryStaticSession: vi.fn(), exportProjectReport: vi.fn(), sendConversationRequest: vi.fn() } }));
+vi.mock('../../api/client', () => ({ api: { autoTests: vi.fn(), autoTest: vi.fn(), dynamicRunSteps: vi.fn(), getConnectedSourceStatus: vi.fn().mockResolvedValue({ connected: true, sources: [] }), listArtifacts: vi.fn(), startAutoTest: vi.fn(), cancelAutoTest: vi.fn(), listStaticSessions: vi.fn(), getStaticSession: vi.fn(), getReviewHarness: vi.fn().mockResolvedValue(null), listStaticFindings: vi.fn(), listRequirements: vi.fn(), listRequirementCandidates: vi.fn(), updateRequirement: vi.fn(), listConnectedSources: vi.fn(), retryStaticSession: vi.fn(), exportProjectReport: vi.fn(), conversationRequests: vi.fn(), sendConversationRequest: vi.fn() } }));
 vi.mock('../../components/SourceIndexStatus', () => ({ SourceIndexStatus: () => null }));
 vi.mock('../../autotest/liveStream', () => ({ openLiveStream: vi.fn() }));
 
@@ -25,12 +26,22 @@ const session = (patch: Partial<AutoTestSession> = {}): AutoTestSession => ({
   stage: 'completed', error: null, repository: null, launch: null, exploration: null, lanes: [], laneLimit: 1, laneNote: null, tests: [test()], dropped: [], summary: null,
   request: { text: 'Test that two mugs cost $24.00', base: null, history: [] }, reply: 'I wrote one test.', ...patch,
 });
+const conversationRequest = (index: number): ConversationRequest => {
+  const id = `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`;
+  const createdAt = new Date(Date.UTC(2026, 10, 1, 0, index)).toISOString();
+  return { id, projectId: project.id, ownerId: 'u', revision: 1, createdAt, updatedAt: createdAt,
+    input: { id, text: `User message ${index}`, mode: 'code', permission: 'auto', references: [] }, inputHash: `hash-${index}`,
+    state: 'completed', action: 'suggest', policyVersion: 'test', events: [] };
+};
 
 function renderScreen(onNavigate = vi.fn(), item = project) {
   render(<ProjectConversationScreen project={item} projects={[item]} onNavigate={onNavigate} />);
   return onNavigate;
 }
-
+async function returnToConversation(user: ReturnType<typeof userEvent.setup>) {
+  const back = await screen.findByRole('button', { name: 'Back to the conversation' });
+  await user.click(back);
+}
 describe('project conversation', () => {
   beforeEach(() => {
     sessionStorage.clear();
@@ -46,6 +57,7 @@ describe('project conversation', () => {
     vi.mocked(api.listRequirements).mockResolvedValue([]);
     vi.mocked(api.listRequirementCandidates).mockResolvedValue([]);
     vi.mocked(api.listConnectedSources).mockResolvedValue([]);
+    vi.mocked(api.conversationRequests).mockResolvedValue([]);
     vi.mocked(api.startAutoTest).mockResolvedValue(session({ stage: 'reading', tests: [], reply: null }));
   });
 
@@ -61,6 +73,81 @@ describe('project conversation', () => {
     expect(screen.queryByRole('dialog', { name: 'Google Drive needs attention' })).not.toBeInTheDocument();
   });
 
+  it.each(['toolbar', 'message'])('routes the %s through the combined Check entry point', async (entry) => {
+    renderScreen();
+    if (entry === 'toolbar') {
+      await userEvent.click(screen.getByRole('button', { name: 'Run a full check' }));
+    } else {
+      await userEvent.type(screen.getByRole('textbox', { name: 'Message to ORIN' }), 'Run both');
+      await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+    }
+    await waitFor(() => expect(window.localStorage.getItem('centinel:checks:local')).toContain('"mode":"both"'));
+    expect(api.sendConversationRequest).not.toHaveBeenCalled();
+  });
+
+  it('asks which Check, recommends the latest, and sends the chosen older reference', async () => {
+    const common = { projectId: project.id, projectName: project.name, phase: 'done' as const, mode: 'code' as const,
+      focus: 'Check catalogue', documents: [], notes: [], updatedAt: '2026-11-25T10:30:00Z' };
+    const older = { ...common, id: '11111111-1111-4111-8111-111111111111', reviewId: '22222222-2222-4222-8222-222222222222',
+      title: 'Earlier catalogue', createdAt: '2026-11-25T10:20:00Z' };
+    const latest = { ...common, id: '33333333-3333-4333-8333-333333333333', reviewId: '44444444-4444-4444-8444-444444444444',
+      title: 'Latest catalogue', createdAt: '2026-11-25T10:30:00Z' };
+    saveCheck(older);
+    saveCheck(latest);
+    renderScreen();
+    await returnToConversation(userEvent.setup());
+    await userEvent.type(screen.getByRole('textbox', { name: 'Message to ORIN' }), 'What did that check cover?');
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(await screen.findByRole('heading', { name: 'Which Check do you mean?' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /Latest catalogue.*Recommended/ })).toBeInTheDocument();
+    expect(api.sendConversationRequest).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('radio', { name: /Earlier catalogue.*2026/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Use this Check' }));
+    await waitFor(() => expect(api.sendConversationRequest).toHaveBeenCalledWith(project.id,
+      expect.objectContaining({ references: [{ checkId: older.id, checkFocus: older.focus, reviewId: older.reviewId }] })));
+  });
+
+  it('loads a ten-message conversation page, keeps the visible turns, and offers a retry for an older-page failure', async () => {
+    const user = userEvent.setup();
+    const all = Array.from({ length: 12 }, (_, index) => conversationRequest(index));
+    vi.mocked(api.conversationRequests)
+      .mockResolvedValueOnce(all.slice(2).reverse())
+      .mockRejectedValueOnce(new Error('Older page unavailable'))
+      .mockResolvedValueOnce(all.slice(0, 2).reverse());
+    renderScreen();
+    expect(await screen.findByText('User message 2')).toBeInTheDocument();
+    expect(screen.queryByText('User message 1')).not.toBeInTheDocument();
+    expect(screen.queryByText('User message 0')).not.toBeInTheDocument();
+    expect(api.conversationRequests).toHaveBeenNthCalledWith(1, project.id, undefined, 10);
+    await user.click(screen.getByRole('button', { name: 'Load earlier messages' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Earlier messages could not be loaded.');
+    expect(api.conversationRequests).toHaveBeenNthCalledWith(2, project.id, all[2].id, 10);
+    await user.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText('User message 0')).toBeInTheDocument();
+    expect(screen.getByText('User message 1')).toBeInTheDocument();
+  });
+
+  it('returns a custom Check clarification to the composer without resolving an identity', async () => {
+    const user = userEvent.setup();
+    const common = { projectId: project.id, projectName: project.name, phase: 'done' as const, mode: 'code' as const,
+      documents: [], notes: [], updatedAt: '2026-11-25T10:30:00Z' };
+    saveCheck({ ...common, id: '11111111-1111-4111-8111-111111111111', reviewId: '22222222-2222-4222-8222-222222222222',
+      title: 'Earlier catalogue', focus: 'Check catalogue', createdAt: '2026-11-25T10:20:00Z' });
+    saveCheck({ ...common, id: '33333333-3333-4333-8333-333333333333', reviewId: '44444444-4444-4444-8444-444444444444',
+      title: 'Latest catalogue', focus: 'Check catalogue', createdAt: '2026-11-25T10:30:00Z' });
+    renderScreen();
+    await returnToConversation(user);
+    const input = screen.getByRole('textbox', { name: 'Message to ORIN' });
+    await user.type(input, 'What did that check cover?');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    await user.click(screen.getByRole('radio', { name: 'Something else' }));
+    await user.type(screen.getByRole('textbox', { name: 'Clarify which Check you mean' }), 'the earlier catalogue check');
+    await user.click(screen.getByRole('button', { name: 'Add clarification to message' }));
+    expect(input).toHaveValue('What did that check cover?\nthe earlier catalogue check');
+    expect(input).toHaveFocus();
+    expect(api.sendConversationRequest).not.toHaveBeenCalled();
+  });
+
   it('skips the Google Drive alert if the project has no retained Drive sources', async () => {
     vi.mocked(api.getConnectedSourceStatus).mockResolvedValueOnce({
       connected: false, status: 'disconnected', sources: [{ status: 'removed' }],
@@ -71,17 +158,34 @@ describe('project conversation', () => {
   });
 
   it('opens a saved Check card in the project side panel without navigating away', async () => {
+    const user = userEvent.setup();
     vi.mocked(api.autoTests).mockResolvedValue([session()]);
     const navigate = renderScreen();
     const card = within(await screen.findByRole('region', { name: 'Check Two mugs total $24.00' }));
     expect(card.getByText('Proven in the browser')).toBeInTheDocument();
-    await userEvent.click(card.getByRole('button', { name: 'View' }));
+    await user.click(card.getByRole('button', { name: 'View' }));
     expect(screen.getByRole('complementary', { name: 'What ORIN knows' })).toHaveClass('is-open');
     expect(within(screen.getByRole('complementary', { name: 'What ORIN knows' }))
       .getByText('Two mugs total $24.00', { selector: '.pc-side-meta' })).toBeInTheDocument();
     expect(navigate).not.toHaveBeenCalled();
-    await userEvent.click(screen.getByRole('button', { name: 'Back to the conversation' }));
+    await user.click(screen.getByRole('button', { name: 'Back to the conversation' }));
     expect(screen.getAllByRole('region', { name: 'Check Two mugs total $24.00' })).toHaveLength(1);
+  });
+
+  it('opens the latest saved Check first and returns to the newest conversation position', async () => {
+    const user = userEvent.setup();
+    saveCheck({ id: 'saved-check', projectId: project.id, projectName: project.name, title: 'Latest saved Check',
+      reviewId: 'review-1', mode: 'code', phase: 'done', createdAt: '2026-11-25T10:00:00Z', updatedAt: '2026-11-25T10:01:00Z',
+      focus: 'Review checkout', documents: [], notes: [] });
+    renderScreen();
+    const panel = screen.getByRole('complementary', { name: 'What ORIN knows' });
+    await waitFor(() => expect(panel).toHaveClass('is-open'));
+    expect(within(panel).getByText('Latest saved Check', { selector: '.pc-side-meta' })).toBeInTheDocument();
+    const pane = document.querySelector<HTMLElement>('.ck-detail-content')!;
+    Object.defineProperty(pane, 'scrollHeight', { configurable: true, value: 5000 });
+    Object.defineProperty(pane, 'clientHeight', { configurable: true, value: 1000 });
+    await user.click(within(panel).getByRole('button', { name: 'Back to the conversation' }));
+    await waitFor(() => expect(pane.scrollTop).toBe(5000));
   });
 
   it('defaults the project composer to Code after the latest combined check falls back', async () => {
@@ -103,36 +207,58 @@ describe('project conversation', () => {
     expect(friendlyError("browserType.launch: Executable doesn't exist at /x")).toMatch(/test browser is not installed/);
   });
 
-  it('sends a request straight away in Auto mode and shows the written test with its result', async () => {
+  it('sends a Browser request in Auto mode through the conversation planner', async () => {
     const user = userEvent.setup();
     renderScreen();
-    await user.type(screen.getByLabelText('Message to ORIN'), 'Test that two mugs cost $24.00{Enter}');
-    expect(api.startAutoTest).toHaveBeenCalledWith('p1', { request: 'Test that two mugs cost $24.00', lanes: 1, startupPermission: 'auto' });
-    expect(api.sendConversationRequest).not.toHaveBeenCalled();
+    const text = 'In the Browser, verify the home page shows "Ceramic Mug".';
+    await user.type(screen.getByLabelText('Message to ORIN'), text + '{Enter}');
+    expect(api.sendConversationRequest).toHaveBeenCalledWith('p1', expect.objectContaining({ text, mode: 'browser', permission: 'auto' }));
+    expect(api.startAutoTest).not.toHaveBeenCalled();
   });
 
-  it('collapses the work under "Worked for", shows the result in plain text and keeps actions outside the reply', async () => {
+  it('collapses the work under "Worked for", shows failed assertions as discoveries and groups reply actions', async () => {
     const user = userEvent.setup();
-    vi.mocked(api.autoTests).mockResolvedValue([session({ repository: { fingerprint: 'f', files: 10, routes: 4, forms: 1, requirements: true, truncated: false, persistence: [] }, launch: { recipeId: 'r', label: 'node server.js', framework: 'node', url: 'http://localhost:4101', portHonored: true, installing: false, log: '' }, exploration: { pages: [{ path: '/', controls: 8 }], controls: 8 } })]);
+    vi.mocked(api.dynamicRunSteps).mockResolvedValue({ runId: 'run-1', state: 'finished', verdict: 'failed', reason: null, truncated: false,
+      steps: [{ step: 1, action: 'click', target: 'Add to cart', page: '/', result: 'success', error: null, typedLength: null, screenshot: false }] });
+    vi.mocked(api.autoTests).mockResolvedValue([session({ updatedAt: '2026-11-26T12:05:00.000Z', repository: { fingerprint: 'f', files: 10, routes: 4, forms: 1, requirements: true, truncated: false, persistence: [] }, launch: { recipeId: 'r', label: 'node server.js', framework: 'node', url: 'http://localhost:4101', portHonored: true, installing: false, log: '' }, exploration: { pages: [{ path: '/', controls: 8 }], controls: 8 } })]);
     const onNavigate = renderScreen();
     expect(await screen.findByText('Test that two mugs cost $24.00')).toBeInTheDocument();
     const reply = screen.getByRole('region', { name: "ORIN's reply" });
-    expect(within(reply).getByText('“Two mugs total $24.00” found a problem. I expected the page to show “$24.00”, but it was not shown on the page.')).toBeInTheDocument();
+    const outcome = within(reply).getByText('I found a problem in “Two mugs total $24.00”. I expected the page to show “$24.00”. The browser recorded “This was not shown on the page”.');
+    expect(outcome.closest('.pc-result-text')?.querySelector('.ci-triangle')).toBeNull();
+    const card = screen.getByRole('region', { name: 'Check Two mugs total $24.00' });
+    expect(card.compareDocumentPosition(outcome) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(reply).queryByText('I wrote one test.')).not.toBeInTheDocument();
     expect(screen.queryByText(/AI explanation/)).not.toBeInTheDocument();
     await user.click(within(reply).getByRole('button', { name: /^Worked for/ }));
     expect(within(reply).getByText('I wrote one test.')).toBeInTheDocument();
-    const prep = within(reply).getByRole('button', { name: 'Read the project, started the app, looked at 1 page and wrote 1 test' });
-    expect(within(reply).queryByText(/Read 10 files/)).not.toBeInTheDocument();
-    await user.click(prep);
-    expect(within(reply).getByText('Read 10 files: 4 routes, 1 form, and the requirements')).toBeInTheDocument();
-    await user.click(within(reply).getByRole('button', { name: 'Tested Two mugs total $24.00 in the browser' }));
-    expect(within(reply).getByText('Click it again.')).toBeInTheDocument();
-    expect(within(reply).getByText('Passes only if the page shows “$24.00”')).toBeInTheDocument();
+    const start = within(reply).getByText('Started the Browser Check');
+    await user.click(start);
+    const branch = within(start.closest('details')!);
+    expect(branch.getByText(/I read 10 project files, started the app, inspected 1 page/)).toBeVisible();
+    expect(await within(reply).findByText(/Read 10 files.*4 routes.*1 form/)).toBeInTheDocument();
+    await user.click(within(reply).getByText('Started Two mugs total $24.00'));
+    expect(await within(reply).findByText(/Clicked Add to cart/)).toBeInTheDocument();
+    expect(within(reply).queryByText('Click it again.')).not.toBeInTheDocument();
+    expect(within(reply).getByText('Checked Total shown')).toBeInTheDocument();
     const actions = screen.getByRole('group', { name: 'Actions for Two mugs total $24.00' });
-    expect(reply).not.toContainElement(actions);
+    const replyActions = within(reply).getByRole('group', { name: 'Reply actions' });
+    expect(replyActions.firstElementChild?.tagName).toBe('TIME');
+    expect(replyActions).toContainElement(within(replyActions).getByRole('button', { name: 'Copy reply' }));
+    expect(replyActions).toContainElement(actions);
     await userEvent.click(screen.getByRole('button', { name: 'Replay' }));
     expect(onNavigate).toHaveBeenCalledWith({ name: 'dynamic-testing', projectId: 'p1', runId: 'run-1' });
+  });
+
+  it('keeps the warning icon for a real Browser execution error', async () => {
+    vi.mocked(api.autoTests).mockResolvedValue([session({ tests: [], stage: 'failed', reply: null, updatedAt: '2026-11-26T12:05:00.000Z',
+      error: { reason: 'browser_startup', message: 'The Browser Check could not start.' } })]);
+    renderScreen();
+    const reply = await screen.findByRole('region', { name: "ORIN's reply" });
+    expect(within(reply).getByText(/The Browser Check could not start/).closest('.pc-error')?.querySelector('.ci-triangle')).toBeInTheDocument();
+    const actions = within(reply).getByRole('group', { name: 'Reply actions' });
+    expect(actions.firstElementChild?.tagName).toBe('TIME');
+    expect(within(actions).getByRole('button', { name: 'Copy reply' })).toBeInTheDocument();
   });
 
   it('runs a test again without offering to save it for every check', async () => {
@@ -163,17 +289,18 @@ describe('project conversation', () => {
     await user.type(screen.getByLabelText('Message to ORIN'), 'Use admin@test.com / test123 to check orders{Enter}');
     expect(screen.getByText('The AI will see this account. Use test accounts only.')).toBeInTheDocument();
     expect(api.startAutoTest).not.toHaveBeenCalled();
-    await user.click(screen.getByRole('button', { name: 'Go ahead' }));
-    expect(api.startAutoTest).toHaveBeenCalledWith('p1', { request: 'Use admin@test.com / test123 to check orders', lanes: 1, startupPermission: 'ask' });
+    expect(api.sendConversationRequest).toHaveBeenCalledWith('p1', expect.objectContaining({
+      text: 'Use admin@test.com / test123 to check orders', mode: 'browser', permission: 'ask',
+    }));
   });
 
-  it('explains that browser tests need a folder when the project has only a GitHub link', async () => {
+  it('allows conversation planning but keeps direct full runs disabled without a folder', async () => {
     const user = userEvent.setup();
     renderScreen(vi.fn(), { ...project, workspacePath: '' });
     expect(screen.getByRole('button', { name: /Run a full check/ })).toBeDisabled();
     await user.type(screen.getByLabelText('Message to ORIN'), 'Test sign in{Enter}');
     expect(api.startAutoTest).not.toHaveBeenCalled();
-    expect(screen.getByText(/Browser tests need the project folder on this computer/)).toBeInTheDocument();
+    expect(api.sendConversationRequest).toHaveBeenCalledWith('p1', expect.objectContaining({ text: 'Test sign in' }));
   });
 
   it('answers a question in words without a test card', async () => {
@@ -185,7 +312,9 @@ describe('project conversation', () => {
 
   it('shows the latest saved result in What ORIN knows and downloads its report', async () => {
     const user = userEvent.setup();
-    vi.mocked(api.listStaticSessions).mockResolvedValue([{ id: 'r1', projectId: 'p1', status: 'completed', createdAt: '2026-11-12T10:00:00.000Z', progressJson: '{}', failureReason: '' }] as never);
+    const review = { id: 'r1', projectId: 'p1', status: 'completed', createdAt: '2026-11-12T10:00:00.000Z', progressJson: '{}', failureReason: '' };
+    vi.mocked(api.listStaticSessions).mockResolvedValue([review] as never);
+    vi.mocked(api.getStaticSession).mockResolvedValue(review as never);
     vi.mocked(api.listStaticFindings).mockResolvedValue([
       { id: 'f1', projectId: 'p1', sessionId: 'r1', source: 'static', severity: 'high', priority: 'high', riskLevel: 'critical', title: 'Orders open without sign-in', description: 'd', status: 'new', createdAt: '', artifactId: null, category: '', evidenceText: '', recommendation: '', confidence: '', fromRemarks: false, filePath: 'server.js', lineNumber: 76 },
       { id: 'f2', projectId: 'p1', sessionId: 'r1', source: 'static', severity: 'low', priority: 'low', riskLevel: 'low', title: 'Debug output', description: 'd', status: 'dismissed', createdAt: '', artifactId: null, category: '', evidenceText: '', recommendation: '', confidence: '', fromRemarks: false, filePath: 'server.js', lineNumber: 9 },
@@ -197,9 +326,8 @@ describe('project conversation', () => {
     const open = vi.spyOn(globalThis, 'open').mockReturnValue(null);
     const onNavigate = renderScreen();
     const panel = screen.getByRole('complementary', { name: 'What ORIN knows' });
-    expect(await within(panel).findByText('1 problem')).toBeInTheDocument();
-    expect(within(panel).getByRole('button', { name: 'Open the full result' })).toBeInTheDocument();
-    await user.click(within(panel).getByRole('button', { name: 'Open the full result' }));
+    expect(await within(panel).findByText('Orders open without sign-in')).toBeInTheDocument();
+    expect(panel).toHaveClass('is-open');
     expect(within(panel).getByRole('button', { name: 'Back to the conversation' })).toHaveAttribute('aria-expanded', 'true');
     expect(onNavigate).not.toHaveBeenCalled();
     expect(screen.queryByRole('textbox', { name: 'Message to ORIN' })).not.toBeInTheDocument();
@@ -222,12 +350,10 @@ describe('project conversation', () => {
   });
 
   it('lists the latest full check\'s browser tests when the panel is open', async () => {
-    const user = userEvent.setup();
     const full = session({ request: undefined, tests: [test(), test({ id: 't-ok', name: 'Sign in works', state: 'passed' })] } as never);
     vi.mocked(api.autoTests).mockResolvedValue([full]);
     renderScreen();
     const panel = screen.getByRole('complementary', { name: 'What ORIN knows' });
-    await user.click(within(panel).getByRole('button', { name: 'Show the whole project' }));
     expect(await within(panel).findByText('Browser tests · 1 of 2 failed')).toBeInTheDocument();
     expect(within(panel).getByTitle('Sign in works: passed')).toBeInTheDocument();
   });

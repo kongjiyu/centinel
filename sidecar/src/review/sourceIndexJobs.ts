@@ -77,15 +77,17 @@ export class SourceIndexCoordinator {
     if (job.ownerId === auth.userId) this.schedule(job, artifacts);
     return job;
   }
-  async recover(auth: AuthenticatedRequest, projectId: string): Promise<SourceIndexJob | null> {
+  async recover(auth: AuthenticatedRequest, projectId: string, signal?: AbortSignal): Promise<SourceIndexJob | null> {
+    signal?.throwIfAborted();
     this.adoptSession(auth);
     const job = await this.store(auth.userId).latest(projectId, auth.userId);
     const hold = await this.store(auth.userId).hold(projectId, auth.userId);
     if (hold?.code && job) return { ...job, state: 'paused', errorCode: hold.code };
     if (job?.state === 'paused') return job;
-    const artifacts = await this.deps.artifacts(this.auth(auth.userId), projectId);
-    const identity = await this.deps.describe(this.auth(auth.userId), projectId, artifacts);
+    const artifacts = await this.deps.artifacts(this.auth(auth.userId), projectId, signal);
+    const identity = await this.deps.describe(this.auth(auth.userId), projectId, artifacts, signal);
     const current = await this.store(auth.userId).get(sourceIndexJobId(projectId, identity.fingerprint));
+    signal?.throwIfAborted();
     if (hold?.code && current) return { ...current, state: 'paused', errorCode: hold.code };
     if (current?.ownerId === auth.userId && ['queued', 'running'].includes(current.state)) this.schedule(current, artifacts);
     return current;

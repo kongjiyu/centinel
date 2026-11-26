@@ -22,6 +22,18 @@ describe('Frozen browser action permissions',()=>{
   expect(parseActionFromText('{"action":"click","targetDescription":"e6","selector":"e6","reasoning":""}').action).toEqual({action:'click',targetDescription:'e6',elementRef:'e6',reasoning:''});
   expect(parseActionFromText('{"action":"click","targetDescription":"Save","selector":"#save","reasoning":""}').action).toMatchObject({selector:'#save'});
  });
+ it('accepts missing display labels only for explicit locator actions and retains authorization',async()=>{
+  const fill=parseActionFromText('{"action":"type","elementRef":"e0","text":"Ceramic Mug","reasoning":"Fill the product search."}');
+  expect(fill.action).toMatchObject({action:'type',elementRef:'e0',text:'Ceramic Mug',targetDescription:'Fill field'});
+  expect(parseActionFromText('{"action":"click","selector":"e0","reasoning":"Open product."}').action).toMatchObject({action:'click',elementRef:'e0',targetDescription:'Click control'});
+  expect(parseActionFromText('{"action":"type","elementRef":"e0","reasoning":"Missing text."}').action).toBeUndefined();
+  expect(parseActionFromText('{"action":"click","targetDescription":"Search","reasoning":"Missing locator."}').action).toBeUndefined();
+  const page=await browser.newPage();
+  try{
+   await page.setContent('<input id="search">');
+   await expect(authorizeBrowserAction(page,fill.action!,{policy:normalizeActionPolicy(),origins:[],bindings:new Map([['e0','#search']])})).rejects.toThrow('not approved');
+  }finally{await page.close();}
+ });
  it('blocks file controls, their nested labels and download links even with a click grant',async()=>{
   const page=await browser.newPage();try{await page.setContent('<input id="file" type="file"><label for="file"><span id="label">Upload</span></label><a id="download" download href="/file">Download</a>');const policy=normalizeActionPolicy({schemaVersion:1,interactions:['#file','#label','#download'].map(selector=>({selector,actions:['click']})),allowCoordinates:false});
    for(const selector of ['#file','#label','#download'])await expect(authorizeBrowserAction(page,{action:'click',selector,targetDescription:'Approved',reasoning:''},{policy,origins:[]})).rejects.toThrow('File controls');

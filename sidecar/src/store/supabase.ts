@@ -128,6 +128,7 @@ function mapFinding(row: Row): StoreFinding {
     id: text(row, 'id'), projectId: text(row, 'project_id'), reviewSessionId: optionalText(row, 'review_session_id'), dynamicSessionId: optionalText(row, 'dynamic_session_id'),
     source: text(row, 'source', 'static') === 'dynamic' ? 'dynamic' : 'static', severity: text(row, 'severity'), priority: optionalText(row, 'priority'),
     title: text(row, 'title'), description: text(row, 'description'), status: text(row, 'status', 'new') as StoreFinding['status'], category: text(row, 'category'), evidenceText: text(row, 'evidence_text'), recommendation: text(row, 'recommendation'), confidence: text(row, 'confidence'),
+    ...(typeof row.source_version === 'string' && { sourceVersion: row.source_version }),
     artifactId: optionalText(row, 'artifact_id'), artifactVersionId: optionalText(row, 'artifact_version_id'), evidenceId: optionalText(row, 'evidence_id'), requirementId: optionalText(row, 'requirement_id'), standardId: optionalText(row, 'standard_id'), verifier: optionalText(row, 'verifier'), location: asRecord(row.location), correlationFingerprint: optionalText(row, 'correlation_fingerprint'), createdAt: text(row, 'created_at'), updatedAt: text(row, 'updated_at', text(row, 'created_at')),
   };
 }

@@ -14,7 +14,7 @@ export function resolveAttachmentNames(references: ConversationReference[], evid
     const id = ref.findingId ? 'finding:' + ref.findingId
       : ref.testId ? 'browser:' + ref.autoTestId + ':' + ref.testId
       : ref.artifactId ? 'artifact:' + ref.artifactId
-      : ref.reviewId && !ref.autoTestId ? 'review:' + ref.reviewId : null;
+      : ref.reviewId ? 'review:' + ref.reviewId : ref.autoTestId ? 'browser:' + ref.autoTestId : null;
     if (!id) return null;
     const source = byId.get(id);
     if (!source) return null;
@@ -23,6 +23,7 @@ export function resolveAttachmentNames(references: ConversationReference[], evid
       if (ref.findingId) return item?.reviewId === ref.reviewId ? name(item.title) : null;
       if (ref.testId) return Array.isArray(item?.tests) ? name(item.tests.find((test: { id?: string }) => test?.id === ref.testId)?.name) : null;
       if (ref.artifactId) return name(item?.path, true);
+      if (!ref.reviewId && Array.isArray(item?.tests) && item.tests.length === 1) return name(item.tests[0]?.name);
       return name(item?.name);
     } catch { return null; }
   });

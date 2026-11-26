@@ -1,10 +1,12 @@
 import type { Artifact } from '../artifacts.js';
+import { ApplicationRepositoryError } from '../applicationRepository.js';
 import type { AuthenticatedRequest } from '../auth/index.js';
 import type { RepositoryIndexIdentity } from './repositoryIndexSnapshot.js';
 import type { RepositoryIndexSyncResult } from './repositoryIndexSync.js';
 
 type Dependencies = {
   requireMember(auth: AuthenticatedRequest, projectId: string): Promise<unknown>;
+  recover?(auth: AuthenticatedRequest, projectId: string, signal: AbortSignal): Promise<unknown>;
   listArtifacts(auth: AuthenticatedRequest, projectId: string, signal: AbortSignal): Promise<Artifact[]>;
   describe(auth: AuthenticatedRequest, projectId: string, artifacts: Artifact[], signal: AbortSignal): Promise<RepositoryIndexIdentity>;
   inspect(auth: AuthenticatedRequest, projectId: string, identity: RepositoryIndexIdentity, signal: AbortSignal): Promise<RepositoryIndexSyncResult>;
@@ -29,6 +31,8 @@ export async function handleRepositoryIndexSyncRoute(request: { method: string; 
   const operation = async () => {
     await deps.requireMember(request.auth, projectId);
     signal.throwIfAborted();
+    await deps.recover?.(request.auth, projectId, signal);
+    signal.throwIfAborted();
     const artifacts = await deps.listArtifacts(request.auth, projectId, signal);
     signal.throwIfAborted();
     if (!artifacts.length) return { status: 200, body: { state: 'none' } };
@@ -41,5 +45,11 @@ export async function handleRepositoryIndexSyncRoute(request: { method: string; 
   // Bound the response even if a dependency does not honor AbortSignal. Late
   // completion cannot start the next operation or activate an expired result.
   try { return await Promise.race([operation(), aborted]); }
+  catch (error) {
+    if (!signal.aborted && error instanceof ApplicationRepositoryError && error.code === 'repository_index_scope_too_large') {
+      return { status: 200, body: { state: 'incompatible', errorCode: error.code, detail: error.message } };
+    }
+    throw error;
+  }
   finally { signal.removeEventListener('abort', onAbort); }
 }

@@ -39,7 +39,7 @@ export type AutoTestSession = {
   createdAt: string; updatedAt: string; stage: AutoTestStage;
   error: { reason: string; message: string; log?: string } | null;
   repository: { fingerprint: string; files: number; routes: number; forms: number; requirements: boolean; truncated: boolean; persistence: string[] } | null;
-  launch: { recipeId: string; label: string; framework: string; url: string | null; portHonored: boolean | null; installing: boolean; log: string } | null;
+  launch: { recipeId: string; label: string; framework: string; url: string | null; portHonored: boolean | null; installing: boolean; installStarted?: boolean; log: string } | null;
   exploration: { pages: Array<{ path: string; controls: number }>; controls: number } | null;
   lanes: AutoTestLane[]; laneLimit: number; laneNote: string | null;
   tests: AutoTestEntry[]; dropped: Array<{ name: string; reason: string }>;

@@ -1,5 +1,5 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown, ChevronRight, RotateCcw, Search, Wrench, FileText, Globe, Info, LoaderCircle, MonitorCheck, Pencil, Play, Plus, ShieldCheck, TriangleAlert, X } from 'lucide-react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { ArrowDown, Check, ChevronDown, ChevronRight, Copy, RotateCcw, Info, LoaderCircle, Pencil, Play, Plus, ShieldCheck, TriangleAlert, X } from 'lucide-react';
 import { api } from '../../api/client';
 import type { AutoTestEntry, AutoTestPreset, AutoTestRef, AutoTestSession } from '../../autotest/types';
 import { isActive } from '../../autotest/types';
@@ -8,6 +8,7 @@ import { LoadingSkeleton } from '../../components/LoadingSkeleton';
 import { Icon } from '../../components/Icon';
 import { Modal } from '../../components/Modal';
 import { browserProblem, type CheckProblem } from '../../check/result';
+import { plainReason } from '../../check/plainReason';
 import { addNote, setMode, setSideOpen, useProjectPrefs } from '../../check/projectPrefs';
 import { useLatestResult, type LatestResult } from '../../check/latestResult';
 import { useCheckData } from '../../check/useCheckData';
@@ -18,7 +19,6 @@ import { type CheckMode, type CheckRecord, type StartCheckInput } from '../../ch
 import { projectLocalFolder } from '../../check/projectWorkspace';
 import type { Artifact, Project, Screen } from '../../types';
 import { userFacingError } from '../../utils/userFacingError';
-import { BrowserTiles } from '../check/BrowserTiles';
 import { StartupQuestionDialog } from '../check/StartupQuestionDialog';
 import { InlineText } from '../check/CheckScreen';
 import '../check/Check.css';
@@ -27,14 +27,17 @@ import { useCheckLibrary } from '../check/CheckSourceLibrary';
 import { ProjectSidePanel } from './ProjectSidePanel';
 import { ProjectCheckCard } from './ProjectCheckCard';
 import { ConversationTurn } from './ConversationTurn';
+import { BrowserWorkSection } from './CheckWorkActivity';
+import { ConversationMessage, copyConversationText, MessageTime } from './ConversationMessage';
 import { eligibleReplySource, type ProblemAttachment, readConversationDraft, replyExcerpt, conversationQuestionOptions, useConversationRequests, writeConversationDraft } from '../../check/conversation';
+import type { ConversationRequest } from '../../check/conversationTypes';
 import { ConversationQuestion } from './ConversationQuestion';
-import { ConversationFailure, conversationFailureDetails } from './ConversationFailure';
-import { consumeConversationReturn, rememberProjectPosition, restoreProjectPosition } from '../../check/projectNavigation';
+import { consumeConversationReturn } from '../../check/projectNavigation';
 import './ProjectConversation.css';
 
 type Navigate = (screen: Screen) => void;
 type Pending = { text: string; base: (AutoTestRef & { name: string }) | null; checkMode?: CheckMode; checkInput?: StartCheckInput } | { rerun: Array<AutoTestRef & { name: string }> };
+type PendingConversationQuestion = { request: ConversationRequest; question?: NonNullable<ConversationRequest['questions']>[number]; options?: string[]; at: string };
 
 const POLL_MS = 2000;
 const IDLE_POLL_MS = 15000;
@@ -65,7 +68,7 @@ export function testChanges(base: AutoTestPreset, next: AutoTestEntry): { added:
 /** One readable line for a stopped session; raw tool output stays out of the conversation. */
 export function friendlyError(message: string): string {
   if (/Executable doesn't exist|playwright install/i.test(message)) return 'The test browser is not installed on this computer. Run “pnpm exec playwright install chromium” in the sidecar folder, then try again.';
-  const first = message.split(/\n/)[0].replace(/^[\w.]+: /, '').trim();
+  const first = (plainReason(message) ?? '').split(/\n/)[0].replace(/^[\w.]+: /, '').trim();
   return first.length > 300 ? `${first.slice(0, 297)}…` : first || 'The test stopped before it finished.';
 }
 
@@ -83,16 +86,23 @@ function browserTurnCheck(session: AutoTestSession, projectName: string): CheckR
 
 /** The plain result sentence for one finished test, from its saved verdict and checks only. */
 export function resultSentence(test: AutoTestEntry): string {
-  if (test.state === 'passed') return `“${test.name}” passed.`;
+  if (test.state === 'passed') return `I verified “${test.name}” in the browser.`;
   if (test.state === 'failed') {
     const problem = browserProblem(test);
-    const first = problem.browserChecks?.[0];
-    const expected = test.checks[0] ? checkSentence(test.checks[0]).replace(/^The page shows /, 'the page to show ') : first?.expected ?? 'the expected result';
-    return `“${test.name}” found a problem. I expected ${expected.charAt(0).toLowerCase()}${expected.slice(1)}, but ${first && first.observed !== 'This was not shown on the page.' ? `the page showed “${first.observed}”` : 'it was not shown on the page'}.`;
+    const failed = test.checkResults?.find(result => result.verdict === 'failed');
+    const definition = test.checks.find(check => check.id === failed?.checkId);
+    const outcome = problem.browserChecks?.[0];
+    if (!failed || !outcome) return `I found a problem in “${test.name}”. The expected and observed outcomes are unavailable.`;
+    const expected = (definition ? checkSentence(definition) : outcome.expected).replace(/[.!?]$/, '');
+    const observation = `The browser recorded “${outcome.observed.replace(/[.!?]$/, '')}”.`;
+    const expectation = definition?.kind === 'visible_text' ? `I expected the page to show “${definition.expected}”.`
+      : `The expected result was “${expected}”.`;
+    return `I found a problem in “${test.name}”. ${expectation} ${observation}`;
   }
   if (test.state === 'uncertain') return `“${test.name}” finished, but the result was unclear.`;
   if (test.state === 'cancelled') return `“${test.name}” was stopped.`;
-  return `“${test.name}” could not run.${test.reason ? ` ${test.reason}` : ''}`;
+  const reason = plainReason(test.reason);
+  return `“${test.name}” could not run.${reason ? ` ${reason}` : ''}`;
 }
 
 function useTicker(active: boolean) {
@@ -112,72 +122,6 @@ export function workedFor(ms: number): string {
   return minutes ? `${minutes}m ${String(total % 60).padStart(2, '0')}s` : `${total}s`;
 }
 
-type Activity = { id: string; summary: string; icon: typeof Check; running: boolean; details: Array<{ icon?: typeof Check; num?: number; text: React.ReactNode }>; live?: boolean; test?: AutoTestEntry };
-
-const joinList = (items: string[]) => items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
-
-/** High-level activity lines for one turn, each with its detailed rows (Codex-style). Built only from the saved session. */
-export function turnActivities(session: AutoTestSession): Activity[] {
-  const active = isActive(session);
-  const prep: Activity['details'] = [];
-  const done: string[] = [];
-  if (session.repository) {
-    prep.push({ icon: FileText, text: `Read ${session.repository.files} file${session.repository.files === 1 ? '' : 's'}: ${session.repository.routes} route${session.repository.routes === 1 ? '' : 's'}, ${session.repository.forms} form${session.repository.forms === 1 ? '' : 's'}${session.repository.requirements ? ', and the requirements' : ''}` });
-    done.push('read the project');
-  }
-  if (session.launch?.url) {
-    prep.push({ icon: Globe, text: <>Started the app with <span className="ck-mono">{session.launch.label}</span> at <span className="ck-mono">{session.launch.url}</span></> });
-    done.push('started the app');
-  }
-  if (session.exploration) {
-    for (const page of session.exploration.pages.slice(0, 8)) prep.push({ icon: Search, text: <>Looked at <span className="ck-mono">{page.path}</span>: {page.controls} control{page.controls === 1 ? '' : 's'}</> });
-    done.push(`looked at ${session.exploration.pages.length} page${session.exploration.pages.length === 1 ? '' : 's'}`);
-  }
-  if (session.tests.length && session.planning !== false) {
-    for (const test of session.tests) prep.push({ icon: Pencil, text: <>Wrote <b>{test.name}</b></> });
-    done.push(`wrote ${session.tests.length} test${session.tests.length === 1 ? '' : 's'}`);
-  }
-  if (session.planning === false && session.tests.length) done.push(`loaded ${session.tests.length} saved test${session.tests.length === 1 ? '' : 's'}`);
-  for (const item of session.dropped) prep.push({ icon: Info, text: `Left out “${item.name}”: ${item.reason}` });
-  const preparing = active && ['reading', 'starting', 'exploring', 'planning'].includes(session.stage);
-  const activities: Activity[] = [];
-  if (prep.length || preparing) {
-    const summary = done.length ? joinList(done).replace(/^./, letter => letter.toUpperCase()) : stageHeadline(session);
-    activities.push({ id: 'prep', summary: preparing && done.length ? `${summary} · ${stageHeadline(session).toLowerCase()}` : summary, icon: Wrench, running: preparing, details: prep });
-  }
-  for (const test of session.tests) {
-    const running = test.state === 'running';
-    if (test.state === 'queued' && !active) continue;
-    activities.push({
-      id: test.id, test, icon: MonitorCheck, running: running || (active && test.state === 'queued'), live: running,
-      summary: running ? `Testing ${test.name} in the browser` : test.state === 'queued' ? `Waiting to test ${test.name}` : `Tested ${test.name} in the browser`,
-      details: [
-        ...goalSteps(test.goal).map((step, index) => ({ num: index + 1, text: <InlineText text={step} /> })),
-        ...test.checks.map(check => ({ icon: Check, text: `Passes only if ${checkSentence(check).charAt(0).toLowerCase()}${checkSentence(check).slice(1)}` })),
-      ],
-    });
-  }
-  return activities;
-}
-
-function ActivityLine({ activity, session }: { activity: Activity; session: AutoTestSession }) {
-  const [open, setOpen] = useState(false);
-  const failed = activity.test?.state === 'failed';
-  return (
-    <div className="pc-activity">
-      <button type="button" className="pc-activity-head" aria-expanded={open} onClick={() => setOpen(value => !value)}>
-        {activity.running ? <Icon icon={LoaderCircle} className="ci-spin" /> : <Icon icon={failed ? TriangleAlert : activity.icon} shape={failed ? 'triangle' : undefined} className={failed ? 'pc-bad' : ''} />}
-        <span>{activity.summary}</span>
-        <Icon icon={open ? ChevronDown : ChevronRight} className="pc-run-chevron" />
-      </button>
-      {open && activity.details.length > 0 && (
-        <ul className="pc-activity-detail">{activity.details.map((row, index) => <li key={index}>{row.icon ? <Icon icon={row.icon} /> : <span className="pc-step-n">{row.num}.</span>}<span>{row.text}</span></li>)}</ul>
-      )}
-      {activity.live && <div className="pc-mini"><BrowserTiles session={session} compact /></div>}
-    </div>
-  );
-}
-
 /** Icon-only action with a tooltip and an accessible name (user request, 14 Nov 2026). */
 function IconAction({ icon, label, onClick, shape, pressed }: { icon: typeof Check; label: string; onClick(): void; shape?: 'play' | 'triangle'; pressed?: boolean }) {
   return (
@@ -187,23 +131,34 @@ function IconAction({ icon, label, onClick, shape, pressed }: { icon: typeof Che
   );
 }
 
-function SessionTurn({ session, projectId, prefs, onChange, onRerun, onCancel, onNavigate }: {
+function SessionTurn({ session, projectId, prefs, onChange, onRerun, onCancel, onNavigate, card }: {
   session: AutoTestSession; projectId: string; prefs: ReturnType<typeof useProjectPrefs>;
+  card?: ReactNode;
   onChange(ref: AutoTestRef & { name: string }): void; onRerun(ref: AutoTestRef & { name: string }): void; onCancel(id: string): void; onNavigate: Navigate;
 }) {
   const active = isActive(session);
   const now = useTicker(active);
   const [workOpen, setWorkOpen] = useState(false);
+  const [copyStatus, setCopyStatus] = useState('');
   const userText = session.request?.text ?? `Run again: ${(session.presets ?? []).map(preset => preset.name).join(', ')}`;
   const base = session.request?.base ?? null;
   const changes = base && session.tests[0] ? testChanges(base, session.tests[0]) : null;
   const opening = session.reply ?? (session.planning === false && session.tests.length ? `I'll run ${session.tests.length === 1 ? 'it' : 'them'} again.` : null);
-  const activities = turnActivities(session);
   const finished = active ? [] : session.tests.filter(test => !['queued', 'running'].includes(test.state));
   const answerOnly = !active && !session.tests.length && !!session.reply;
+  const replyText = [
+    ...finished.map(resultSentence),
+    ...(answerOnly ? [session.reply!] : []),
+    ...(session.stage === 'failed' && session.error ? [friendlyError(session.error.message)] : []),
+  ].join('\n\n');
   const elapsed = (active ? now : Date.parse(session.updatedAt)) - Date.parse(session.createdAt);
-  const showWork = active || workOpen;
-  const hasWork = !!opening || activities.length > 0 || !!changes;
+  const showWork = workOpen;
+  const hasWork = active || !!opening || !!changes || !!session.repository || !!session.launch || !!session.exploration || session.tests.length > 0 || session.dropped.length > 0;
+  useEffect(() => {
+    if (!copyStatus) return;
+    const timer = setTimeout(() => setCopyStatus(''), 1800);
+    return () => clearTimeout(timer);
+  }, [copyStatus]);
 
   const work = (
     <div className="pc-work">
@@ -214,56 +169,69 @@ function SessionTurn({ session, projectId, prefs, onChange, onRerun, onCancel, o
           {changes.added.map(line => <li key={`+${line}`} className="is-added"><Icon icon={Plus} />{line}</li>)}
         </ul>
       )}
-      {activities.map(activity => <ActivityLine key={activity.id} activity={activity} session={session} />)}
+      <BrowserWorkSection session={session} />
     </div>
   );
+  const progress = hasWork && !answerOnly && <div className="pc-progress">
+    <button type="button" className="pc-worked" aria-expanded={showWork} onClick={() => setWorkOpen(value => !value)}>
+      {active && <Icon icon={LoaderCircle} className="ci-spin" />}
+      <span>{active ? `Working for ${workedFor(elapsed)}` : `Worked for ${workedFor(elapsed)}`}</span>
+      {active && <span className="pc-current-activity">{stageHeadline(session)}</span>}
+      <Icon icon={workOpen ? ChevronDown : ChevronRight} />
+    </button>
+    {showWork && work}
+  </div>;
 
   return (
     <>
-      <div className="pc-msg is-me">
+      <ConversationMessage text={userText} at={session.createdAt}>
         {base && <span className="pc-about"><Icon icon={Pencil} />About “{base.name}”</span>}
-        {userText}
-      </div>
+      </ConversationMessage>
       <section className="pc-turn" aria-label="ORIN's reply">
-        {hasWork && !answerOnly && (
-          <>
-            <button type="button" className="pc-worked" aria-expanded={showWork} disabled={active} onClick={() => setWorkOpen(value => !value)}>
-              {active && <Icon icon={LoaderCircle} className="ci-spin" />}
-              <span>{active ? `Working · ${workedFor(elapsed)}` : `Worked for ${workedFor(elapsed)}`}</span>
-              {!active && <Icon icon={workOpen ? ChevronDown : ChevronRight} />}
-            </button>
-            {showWork && work}
-          </>
-        )}
-        {active && <button type="button" className="ck-link pc-stop" onClick={() => onCancel(session.id)}><Icon icon={X} />Stop</button>}
-        {answerOnly && <p className="pc-ai-text"><InlineText text={session.reply!} /></p>}
+        {progress}
+        {card}
+        {(finished.length > 0 || answerOnly || session.error) && <div className="pc-agent-message">
         {finished.map(test => (
-          <p key={test.id} className={`pc-ai-text pc-result-text${test.state === 'failed' ? ' is-fail' : ''}`}>
-            {test.state === 'passed' ? <Icon icon={Check} /> : test.state === 'failed' ? <Icon icon={TriangleAlert} shape="triangle" /> : <Icon icon={Info} />}
+          <p key={test.id} className="pc-ai-text pc-result-text">
+            {test.state === 'passed' ? <Icon icon={Check} /> : test.state === 'failed' ? null : <Icon icon={Info} />}
             <span>{resultSentence(test)}</span>
           </p>
         ))}
+        {answerOnly && <p className="pc-ai-text"><InlineText text={session.reply!} /></p>}
         {session.stage === 'failed' && session.error && <p className="pc-ai-text pc-error"><Icon icon={TriangleAlert} shape="triangle" /><span>{friendlyError(session.error.message)}</span></p>}
+        <footer className="pc-response-actions" role="group" aria-label="Reply actions">
+          <MessageTime at={session.updatedAt} />
+          {!!replyText && <button type="button" className="pc-message-action" aria-label="Copy reply" title="Copy reply" onClick={() => {
+            void copyConversationText(replyText).then(() => setCopyStatus('Reply copied'), () => setCopyStatus('Copy failed'));
+          }}><Copy size={14} aria-hidden="true" /></button>}
+          {finished.map(test => {
+            const ref = { sessionId: session.id, testId: test.id, name: test.name };
+            const reusable = !!test.controls && test.checks.length > 0;
+            if (!test.runId && !reusable) return null;
+            return <span key={test.id} className="pc-response-action-set" role="group" aria-label={`Actions for ${test.name}`}>
+              {test.runId && <IconAction icon={Play} shape="play" label="Replay" onClick={() => onNavigate({ name: 'dynamic-testing', projectId, runId: test.runId })} />}
+              {reusable && <IconAction icon={RotateCcw} label="Run again" onClick={() => onRerun(ref)} />}
+              {reusable && <IconAction icon={Pencil} label="Change it" onClick={() => onChange(ref)} />}
+            </span>;
+          })}
+          <span className="pc-copy-status" role="status">{copyStatus}</span>
+        </footer>
+        </div>}
+        {active && <button type="button" className="ck-link pc-stop" onClick={() => onCancel(session.id)}><Icon icon={X} />Stop</button>}
         {session.stage === 'cancelled' && !finished.length && <p className="pc-ai-text pc-sub"><Icon icon={Info} />Stopped.</p>}
         {session.dropped.length > 0 && !active && !session.tests.length && !session.reply && <p className="pc-ai-text pc-sub"><Icon icon={Info} />The proposed test was left out because ORIN could not check it safely.</p>}
       </section>
-      {finished.map(test => {
-        const ref = { sessionId: session.id, testId: test.id, name: test.name };
-        const reusable = !!test.controls && test.checks.length > 0;
-        if (!test.runId && !reusable) return null;
-        return (
-          <div key={test.id} className="pc-actions pc-turn-actions" role="group" aria-label={`Actions for ${test.name}`}>
-            {test.runId && <IconAction icon={Play} shape="play" label="Replay" onClick={() => onNavigate({ name: 'dynamic-testing', projectId, runId: test.runId })} />}
-            {reusable && <IconAction icon={RotateCcw} label="Run again" onClick={() => onRerun(ref)} />}
-            {reusable && <IconAction icon={Pencil} label="Change it" onClick={() => onChange(ref)} />}
-          </div>
-        );
-      })}
     </>
   );
 }
 
-export function ProjectConversationScreen({ project, projects, onNavigate }: { project: Project; projects: Project[]; onNavigate: Navigate }) {
+export function ProjectConversationScreen({ project, projects, onNavigate, pendingQuestionRequest, questionQueueReady, questionDeadlineAt, questionFocus, onQuestionAnswered }: {
+  project: Project; projects: Project[]; onNavigate: Navigate;
+  pendingQuestionRequest?: ConversationRequest | null; questionDeadlineAt?: number;
+  questionQueueReady?: boolean;
+  questionFocus?: number;
+  onQuestionAnswered?: (updated: ConversationRequest) => void;
+}) {
   const prefs = useProjectPrefs(project.id);
   const checks = useChecks().filter(check => check.projectId === project.id);
   const conversationRequests = useConversationRequests(project.id, project.name);
@@ -281,8 +249,6 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
   const [pending, setPending] = useState<Pending | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [dismissedFailures, setDismissedFailures] = useState<string[]>([]);
-  const [openedFailureId, setOpenedFailureId] = useState<string>();
   const chatCardsRef = useRef<HTMLDivElement>(null);
   const [driveAttention, setDriveAttention] = useState<{ projectId: string; status: string } | null>(null);
   useEffect(() => {
@@ -296,6 +262,7 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
   const endRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const initializedScroll = useRef(false);
+  const sideOpenRef = useRef(false);
   const hasFolder = !!projectLocalFolder(project);
 
   const refresh = useCallback(async () => {
@@ -331,32 +298,132 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
         browserCard: session.tests.length ? checks.find(check => check.id === browserTurnCheckId(session)) ?? browserTurnCheck(session, project.name) : null }));
     const notes = prefs.notes.map(note => ({ at: note.at, key: `n:${note.id}`, note }));
     const browserCardsInTurns = new Set(turns.map(turn => turn.browserCard?.id));
-    const cards = checks.filter(check => !browserCardsInTurns.has(check.id)).map(check => ({ at: check.createdAt, key: 'c:' + check.id, check }));
-    const requests = conversationRequests.records.map(request => ({ at: request.createdAt, key: 'r:' + request.id, request }));
-    return [...turns, ...notes, ...cards, ...requests].sort((a, b) => a.at.localeCompare(b.at));
+    const requestIds = new Set(conversationRequests.records.map(request => 'request-' + request.id));
+    const cards = checks.filter(check => !browserCardsInTurns.has(check.id) && !requestIds.has(check.id)).map(check => ({ at: check.createdAt, key: 'c:' + check.id, check }));
+    const requests = conversationRequests.records.map(request => ({ at: request.createdAt, key: 'r:' + request.id, request,
+      executionCard: checks.find(check => check.id === 'request-' + request.id) }));
+    return [...turns, ...notes, ...cards, ...requests].sort((a, b) => a.at.localeCompare(b.at) || a.key.localeCompare(b.key));
   }, [sessions, prefs.notes, checks, conversationRequests.records, project.name]);
   const last = timeline[timeline.length - 1];
   const latestAction = timeline.filter(item => !('note' in item)).at(-1);
   // Follow the newest reply as it grows (stage, tests and their results), not only new messages.
   const lastSignature = last ? `${last.key}:${'session' in last ? `${last.session.stage}:${last.session.reply ?? ''}:${last.session.tests.map(test => test.state).join(',')}`
-    : 'request' in last ? `${last.request.state}:${last.request.reply?.length ?? 0}:${last.request.selectedOption ?? ''}` : ''}` : '';
+    : 'request' in last ? `${last.request.state}:${last.request.reply?.length ?? 0}:${last.request.selectedOption ?? ''}:${last.request.events.at(-1)?.stage ?? ''}:${last.request.events.at(-1)?.at ?? ''}`
+      : 'check' in last ? `${last.check.phase}:${last.check.updatedAt}` : ''}` : '';
+  const [visibleStart, setVisibleStart] = useState<{ projectId: string; key: string } | null>(null);
+  const [awayFromBottom, setAwayFromBottom] = useState(false);
+  const scrollPaneRef = useRef<HTMLElement | null>(null);
+  const historyAnchorRef = useRef<{ key?: string; offset?: number; scrollTop: number } | null>(null);
+  const loadingEarlierRef = useRef(false);
+  const atBottomRef = useRef(true);
+  const isUserTurn = (item: (typeof timeline)[number]) => !('note' in item);
+  const userTurnIndices = timeline.flatMap((item, index) => isUserTurn(item) ? [index] : []);
+  const visibleStartKey = visibleStart?.projectId === project.id ? visibleStart.key : undefined;
+  const savedStartIndex = visibleStartKey ? timeline.findIndex(item => item.key === visibleStartKey) : -1;
+  const defaultStartIndex = userTurnIndices.length > 10 ? userTurnIndices[userTurnIndices.length - 10] : 0;
+  const visibleStartIndex = savedStartIndex >= 0 ? savedStartIndex : defaultStartIndex;
+  const visibleTimeline = timeline.slice(visibleStartIndex);
+  const earlierTurnIndices = userTurnIndices.filter(index => index < visibleStartIndex);
+
+  const refreshScrollPosition = useCallback(() => {
+    const pane = scrollPaneRef.current;
+    if (!pane) return;
+    const atBottom = pane.scrollHeight - pane.scrollTop - pane.clientHeight <= 96;
+    atBottomRef.current = atBottom;
+    setAwayFromBottom(!atBottom);
+  }, []);
+  const jumpToLatest = useCallback(() => {
+    const pane = scrollPaneRef.current;
+    if (pane) pane.scrollTop = pane.scrollHeight;
+    atBottomRef.current = true;
+    setAwayFromBottom(false);
+  }, []);
+  const preserveHistoryAnchor = () => {
+    const pane = scrollPaneRef.current;
+    if (!pane) return;
+    const paneTop = pane.getBoundingClientRect().top;
+    const candidates = [...pane.querySelectorAll<HTMLElement>('[data-conversation-key]')];
+    const visible = candidates.find(node => node.getBoundingClientRect().bottom > paneTop + 1);
+    historyAnchorRef.current = visible
+      ? { key: visible.dataset.conversationKey, offset: visible.getBoundingClientRect().top - paneTop, scrollTop: pane.scrollTop }
+      : { scrollTop: pane.scrollTop };
+  };
+  const loadEarlier = useCallback(async () => {
+    if (loadingEarlierRef.current) return;
+    loadingEarlierRef.current = true;
+    if (earlierTurnIndices.length) {
+      preserveHistoryAnchor();
+      const targetIndex = earlierTurnIndices[Math.max(0, earlierTurnIndices.length - 10)];
+      const item = timeline[targetIndex];
+      if (item) setVisibleStart({ projectId: project.id, key: item.key });
+      else loadingEarlierRef.current = false;
+      return;
+    }
+    if (!conversationRequests.canLoadOlder) { loadingEarlierRef.current = false; return; }
+    preserveHistoryAnchor();
+    const page = await conversationRequests.loadOlder();
+    const oldest = page.at(-1);
+    if (oldest) setVisibleStart({ projectId: project.id, key: `r:${oldest.id}` });
+    else {
+      historyAnchorRef.current = null;
+      loadingEarlierRef.current = false;
+    }
+  }, [conversationRequests, earlierTurnIndices, project.id, timeline]);
+
+  useEffect(() => {
+    const pane = endRef.current?.closest<HTMLElement>('.ck-detail-content');
+    if (!pane) return;
+    scrollPaneRef.current = pane;
+    pane.addEventListener('scroll', refreshScrollPosition, { passive: true });
+    refreshScrollPosition();
+    return () => { pane.removeEventListener('scroll', refreshScrollPosition); scrollPaneRef.current = null; };
+  }, [project.id, refreshScrollPosition]);
+  useEffect(() => {
+    const pane = scrollPaneRef.current;
+    if (!pane) return;
+    const onScroll = () => {
+      refreshScrollPosition();
+      if (loadingEarlierRef.current) preserveHistoryAnchor();
+      if (pane.closest('.ck-detail-layout')?.classList.contains('is-sidebar-expanded')) return;
+      if (pane.scrollTop <= 140 && (earlierTurnIndices.length || conversationRequests.canLoadOlder)) void loadEarlier();
+    };
+    pane.addEventListener('scroll', onScroll, { passive: true });
+    return () => pane.removeEventListener('scroll', onScroll);
+  }, [conversationRequests.canLoadOlder, earlierTurnIndices.length, loadEarlier, refreshScrollPosition]);
+  useLayoutEffect(() => {
+    const anchor = historyAnchorRef.current;
+    const pane = scrollPaneRef.current;
+    if (!anchor || !pane) return;
+    const anchored = anchor.key && [...pane.querySelectorAll<HTMLElement>('[data-conversation-key]')]
+      .find(node => node.dataset.conversationKey === anchor.key);
+    if (anchored && anchor.offset !== undefined) {
+      pane.scrollTop += anchored.getBoundingClientRect().top - pane.getBoundingClientRect().top - anchor.offset;
+    } else {
+      pane.scrollTop = anchor.scrollTop;
+    }
+    historyAnchorRef.current = null;
+    loadingEarlierRef.current = false;
+    refreshScrollPosition();
+  }, [visibleStart, refreshScrollPosition]);
+  useEffect(() => {
+    setVisibleStart(null);
+    loadingEarlierRef.current = false;
+    initializedScroll.current = false;
+    atBottomRef.current = true;
+    setAwayFromBottom(false);
+  }, [project.id]);
   useEffect(() => {
     if (!loaded || !conversationRequests.loaded) return;
     if (!initializedScroll.current) {
       initializedScroll.current = true;
-      restoreProjectPosition(project.id, endRef.current);
       if (consumeConversationReturn(project.id)) {
         inputRef.current?.focus({ preventScroll: true });
-      } else {
-        return;
       }
+      if (!sideOpenRef.current) jumpToLatest();
+      return;
     }
-    endRef.current?.scrollIntoView?.({ block: 'end', inline: 'nearest' });
-  }, [loaded, conversationRequests.loaded, lastSignature, pending, project.id]);
-  useEffect(() => {
-    const element = endRef.current;
-    return () => rememberProjectPosition(project.id, element);
-  }, [project.id]);
+    if (atBottomRef.current && !sideOpenRef.current) jumpToLatest();
+  }, [loaded, conversationRequests.loaded, lastSignature, pending, project.id, jumpToLatest, refreshScrollPosition]);
 
   const launch = async (job: Pending) => {
     if ('checkInput' in job && job.checkInput) {
@@ -393,9 +460,13 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
     setBase(null);
   };
 
-  const runFullCheck = () => {
-    if (!hasFolder) return;
-    startCheck({ projectId: project.id, documents: [], focus: '', mode: 'both' }, { api, projects: () => projects });
+  const runFullCheck = (message = '') => {
+    if (!hasFolder) {
+      if (message) addNote(project.id, 'A full check needs the project folder on this computer.');
+      return false;
+    }
+    startCheck({ projectId: project.id, documents: [], focus: message, mode: 'both', startupPermission: prefs.mode }, { api, projects: () => projects });
+    return true;
   };
 
   const latest = useLatestResult(project.id, sessions);
@@ -405,25 +476,62 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
     mode: 'code', phase: 'done', reviewId: latest.review.id, createdAt: latest.review.createdAt, updatedAt: latest.review.updatedAt,
     documents: [], notes: [], focus: '',
   });
-  const [sideChoice, setSideChoice] = useState<boolean | null>(null);
-  const sideOpen = sideChoice ?? false;
+  const latestSavedCheck = [...checks].filter(check => check.reviewId || check.autoTestId)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.updatedAt.localeCompare(left.updatedAt))[0];
+  const panelScope = `${historyOwner ?? 'anonymous'}:${project.id}`;
+  const [sideChoice, setSideChoice] = useState<{ scope: string; open: boolean } | null>(null);
+  const [entryPanelState, setEntryPanelState] = useState<{ scope: string; open: boolean | null }>(() => ({ scope: panelScope, open: null }));
+  const entryPanelOpen = entryPanelState.scope === panelScope ? entryPanelState.open : null;
+  useEffect(() => {
+    if (entryPanelOpen !== null) return;
+    if (latestSavedCheck) {
+      setEntryPanelState({ scope: panelScope, open: true });
+      return;
+    }
+    if (!loaded || !conversationRequests.loaded || latest.loading) return;
+    setEntryPanelState({ scope: panelScope, open: !!latestSavedCheck || !!latest.result || prefs.sideOpen });
+  }, [conversationRequests.loaded, entryPanelOpen, latest.loading, latest.result, latestSavedCheck, loaded, panelScope, prefs.sideOpen]);
+  const userPanelChoice = sideChoice?.scope === panelScope ? sideChoice.open : null;
+  const sideOpen = userPanelChoice ?? entryPanelOpen ?? prefs.sideOpen;
+  useEffect(() => {
+    if (questionFocus !== undefined) setSideChoice({ scope: panelScope, open: false });
+  }, [panelScope, questionFocus]);
+  sideOpenRef.current = sideOpen;
   const [focusCheck, setFocusCheck] = useState<CheckRecord | null>(null);
+  const [checkQuestion, setCheckQuestion] = useState<{ options: CheckRecord[]; select: (check: CheckRecord) => void; clarify: (text: string) => void }>();
+  const [checkChoice, setCheckChoice] = useState<string>('');
+  const [checkClarification, setCheckClarification] = useState('');
+  const recommendedCheck = useRef<HTMLInputElement>(null);
+  useEffect(() => { setCheckQuestion(undefined); }, [project.id, historyOwner]);
+  useEffect(() => {
+    if (!checkQuestion) return;
+    setCheckChoice(checkQuestion.options[0]?.id ?? 'custom');
+    setCheckClarification('');
+  }, [checkQuestion]);
   // The expanded panel carries the check page's features (25 Nov 2026), so it reads the chosen check or the check
   // behind the latest result. A running check plays in its card in the conversation, not here.
   const latestRecord = checks.find(check => latest.review && check.reviewId === latest.review.id || latest.autoTest && check.autoTestId === latest.autoTest.id);
-  const targetRecord = focusCheck ?? (sideOpen ? latestRecord : undefined);
+  const defaultRecord = latestSavedCheck ?? latestRecord;
+  const panelRecord = focusCheck ?? (sideOpen ? defaultRecord : undefined);
+  const targetRecord = panelRecord;
   const focusData = useCheckData(targetRecord ?? undefined);
-  const panelLatest: LatestResult = focusCheck
+  const panelLatest: LatestResult = panelRecord
     ? focusData ? {
       review: focusData.review, autoTest: focusData.autoTest, requirements: focusData.requirements, findings: focusData.findings,
       result: focusData.requirementsState === 'unavailable' ? { ...focusData.result, requirements: null } : focusData.result,
-      at: focusCheck.finishedAt ?? focusCheck.createdAt, loading: focusData.evidenceLoaded === false, reload: latest.reload,
+      at: panelRecord.finishedAt ?? panelRecord.createdAt, loading: focusData.evidenceLoaded === false, reload: latest.reload,
     } : { ...latest, loading: true }
     : latest;
   const toggleSide = (open: boolean) => {
-    setSideChoice(open);
+    setSideChoice({ scope: panelScope, open });
     setSideOpen(project.id, open);
-    if (!open) setFocusCheck(null);
+    if (!open) {
+      setFocusCheck(null);
+      if (sideOpen && visibleStart?.projectId !== project.id) {
+        if (typeof window.requestAnimationFrame === 'function') window.requestAnimationFrame(jumpToLatest);
+        else window.setTimeout(jumpToLatest, 0);
+      }
+    }
   };
   const library = useCheckLibrary(project.id);
   const openLatest = () => toggleSide(true);
@@ -454,7 +562,7 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
     toggleSide(false);
     inputRef.current?.focus({ preventScroll: true });
   };
-  const latestCheck = checks[0];
+  const latestCheck = latestSavedCheck ?? checks[0];
   const projectCodeFallback = latestCheck?.mode === 'code' && latestCheck.requestedMode === 'both';
   const documents = artifacts.filter(artifact => artifact.source === 'documents');
   const codeFiles = artifacts.filter(artifact => artifact.source === 'repository').length;
@@ -462,19 +570,26 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
   const startupSession = sessions.find(session => !!session.startupQuestion);
   const latestRequest = latestAction && 'request' in latestAction ? latestAction.request : undefined;
   const owner = sessionStorage.getItem('centinel:supabase-user-id');
-  const latestOwnedRequest = timeline.filter(item => 'request' in item).map(item => item.request).filter(item => item.ownerId === owner).at(-1);
-  const failure = openedFailureId
-    ? conversationRequests.records.find(item => item.id === openedFailureId && item.ownerId === owner)
-    : latestOwnedRequest && !dismissedFailures.includes(latestOwnedRequest.id) && conversationFailureDetails(latestOwnedRequest) ? latestOwnedRequest : undefined;
-  const question = timeline.filter(item => 'request' in item).map(item => item.request)
-    .filter(item => item.state === 'completed' && item.selectedOption === undefined && item.ownerId === owner
-      && conversationQuestionOptions(item).length > 0).at(-1);
-  const questionOptions = question ? conversationQuestionOptions(question) : [];
-  const questionId = question?.id;
-  const failureId = failure?.id;
+  const localPendingQuestion = conversationRequests.records.flatMap<PendingConversationQuestion>(request => {
+    if (request.ownerId !== owner) return [];
+    const current = request.pendingQuestionId ? request.questions?.find(item => item.id === request.pendingQuestionId && !item.answer) : undefined;
+    if (current) return [{ request, question: current, at: current.createdAt }];
+    const legacyOptions = conversationQuestionOptions(request);
+    return request.state === 'completed' && request.selectedOption === undefined && legacyOptions.length
+      ? [{ request, options: legacyOptions, at: request.createdAt }]
+      : [];
+  }).sort((left, right) => left.at.localeCompare(right.at) || left.request.createdAt.localeCompare(right.request.createdAt))[0];
+  const pendingQuestion: PendingConversationQuestion | undefined = pendingQuestionRequest?.projectId === project.id
+    ? { request: pendingQuestionRequest, question: pendingQuestionRequest.questions?.find(item => item.id === pendingQuestionRequest.pendingQuestionId && !item.answer), at: pendingQuestionRequest.createdAt }
+    : questionQueueReady ? undefined : localPendingQuestion;
+  const latestActionWorking = !!latestAction && ('request' in latestAction
+    ? ['accepted', 'planning', 'running'].includes(latestAction.request.state)
+    : 'session' in latestAction ? isActive(latestAction.session)
+      : 'check' in latestAction ? latestAction.check.phase !== 'done' && latestAction.check.phase !== 'failed' : false);
   useEffect(() => {
-    if (questionId || failureId) chatCardsRef.current?.scrollIntoView?.({ block: 'start', inline: 'nearest' });
-  }, [questionId, failureId]);
+    if (checkQuestion) chatCardsRef.current?.scrollIntoView?.({ block: 'start', inline: 'nearest' });
+    if (checkQuestion) recommendedCheck.current?.focus({ preventScroll: true });
+  }, [checkQuestion]);
   return <>
     <StartupQuestionDialog session={startupSession} onAnswered={() => void refresh()} />
     <Modal isOpen={!startupSession && driveAttention?.projectId === project.id} title="Google Drive needs attention"
@@ -496,29 +611,78 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
         editing: base && <span className="ck-chip is-project pc-base"><Icon icon={Pencil} /><span>Changing “{base.name}”</span><button type="button" onClick={() => setBase(null)} aria-label="Stop changing this test"><Icon icon={X} /></button></span>,
         clearReplySelection, replySources, replySourcesLoaded: conversationRequests.loaded,
         replySelection: replySelection?.projectId === project.id && replySelection.ownerId === historyOwner ? replySelection : null,
-        inputRef, sending, send, savedChecks, onFocus: () => setSideChoice(false),
+        inputRef, sending, send, runFullCheck, savedChecks, onFocus: () => setSideChoice({ scope: panelScope, open: false }), onSent: jumpToLatest,
+        question: pendingQuestion ? <ConversationQuestion request={pendingQuestion.request} question={'question' in pendingQuestion ? pendingQuestion.question : undefined}
+          options={'options' in pendingQuestion ? pendingQuestion.options : undefined} deadlineAt={questionDeadlineAt} onAnswered={onQuestionAnswered} /> : null,
+        jumpToLatest: awayFromBottom ? <button type="button" className="pc-jump-latest" aria-label="Jump to latest" title="Jump to latest" onClick={() => {
+          const pane = scrollPaneRef.current;
+          if (pane?.scrollTo && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) pane.scrollTo({ top: pane.scrollHeight, behavior: 'smooth' });
+          else jumpToLatest();
+        }}>
+          {latestActionWorking ? <span className="pc-jump-dots" aria-hidden="true"><i /><i /><i /></span> : <ArrowDown size={16} aria-hidden="true" />}
+        </button> : null,
+        chooseCheck: (options, select, clarify) => setCheckQuestion({ options, select, clarify }),
         latestRequest: !pending && latestRequest && (!conversationRequests.error || conversationRequests.directlyRefreshed.includes(latestRequest.id))
           ? latestRequest : undefined,
+        latestCheck: latestAction && 'session' in latestAction ? latestAction.browserCard ?? undefined : undefined,
         placeholder: base ? 'How should this test change?' : 'Ask ORIN to test or change something',
         setPermission: mode => setMode(project.id, mode),
       }} />}
-    sidebar={<ProjectSidePanel project={project} latest={panelLatest} onOpen={openLatest} checkLabel={focusCheck ? checkName(focusCheck) : undefined} open={sideOpen} onToggle={() => toggleSide(!sideOpen)}
+    sidebar={<ProjectSidePanel project={project} latest={panelLatest} onOpen={openLatest} checkLabel={panelRecord ? checkName(panelRecord) : undefined} open={sideOpen} onToggle={() => toggleSide(!sideOpen)}
       artifacts={artifacts} onSourcesChanged={loadArtifacts} codeFiles={codeFiles} mode={prefs.mode}
-      accountGiven={prefs.accountReminderShown} checks={checks} onNavigate={onNavigate} onRunFullCheck={runFullCheck} onRunAgain={runAgain} onOpenCheck={openCheck} onAsk={askAbout} evidenceAssessment={focusData?.evidenceAssessment} />}>
+      accountGiven={prefs.accountReminderShown} checks={checks} onNavigate={onNavigate} onRunFullCheck={() => { runFullCheck(); }} onRunAgain={runAgain} onOpenCheck={openCheck} onAsk={askAbout} evidenceAssessment={focusData?.evidenceAssessment} />}>
       <div className="ck-screen"><section className="ck-panel pc-response" aria-label={`Conversation about ${project.name}`}>
           <CheckProjectHeader check={{ projectId: project.id, projectName: project.name }} project={project} onNavigate={onNavigate} library={library}
-            projectAction={<button type="button" className="ck-toolbar-item" data-default onClick={runFullCheck} disabled={!hasFolder} aria-label="Run a full check"
+            projectAction={<button type="button" className="ck-toolbar-item" data-default onClick={() => { runFullCheck(); }} disabled={!hasFolder} aria-label="Run a full check"
               title={hasFolder ? 'Run a full check' : 'This project has no folder on this computer'}><Icon icon={Play} shape="play" /><CheckActionLabel>Run a full check</CheckActionLabel></button>} />
 
-          {(failure || question) && <div className="pc-chat-cards" ref={chatCardsRef}>
-            {failure && <ConversationFailure key={failure.id} request={failure} onClose={() => {
-              setDismissedFailures(current => current.includes(failure.id) ? current : [...current, failure.id]);
-              setOpenedFailureId(undefined);
-            }} />}
-            {question && <ConversationQuestion key={question.id} request={question} options={questionOptions} />}
+          {checkQuestion && <div className="pc-chat-cards" ref={chatCardsRef}>
+            {checkQuestion && <section className="pc-card pc-chat-card" aria-labelledby="pc-check-question">
+              <h2 id="pc-check-question" className="pc-card-title" aria-live="polite">Which Check do you mean?</h2>
+              <fieldset className="pc-question-options">
+                <legend>Choose a saved Check, or clarify in your message</legend>
+                {checkQuestion.options.map((option, index) => <label key={option.id} className="pc-check-choice">
+                  <input type="radio" name="pc-check-choice" value={option.id} checked={checkChoice === option.id}
+                    ref={index === 0 ? recommendedCheck : undefined} onChange={() => setCheckChoice(option.id)} />
+                  <span>{checkName(option)} · {new Date(option.createdAt).toLocaleString()}{index === 0 ? ' · Recommended' : ''}</span>
+                </label>)}
+                <label className="pc-check-choice">
+                  <input type="radio" name="pc-check-choice" value="custom" checked={checkChoice === 'custom'} onChange={() => setCheckChoice('custom')} />
+                  <span>Something else</span>
+                </label>
+                <textarea aria-label="Clarify which Check you mean" value={checkClarification} disabled={checkChoice !== 'custom'}
+                  onChange={event => setCheckClarification(event.target.value)} placeholder="Add a detail to your message" rows={2} />
+              </fieldset>
+              <div className="pc-actions">
+                <button type="button" className="ck-button is-small is-primary" disabled={checkChoice === 'custom'} onClick={() => {
+                  const selected = checkQuestion.options.find(option => option.id === checkChoice);
+                  if (selected) { const question = checkQuestion; setCheckQuestion(undefined); question.select(selected); }
+                }}>Use this Check</button>
+                <button type="button" className="ck-button is-small" disabled={checkChoice !== 'custom' || !checkClarification.trim()} onClick={() => {
+                  const question = checkQuestion; const clarification = checkClarification.trim();
+                  setCheckQuestion(undefined); question.clarify(clarification); inputRef.current?.focus({ preventScroll: true });
+                }}>Add clarification to message</button>
+                <button type="button" className="ck-link pc-chat-card-toggle" onClick={() => { setCheckQuestion(undefined); inputRef.current?.focus({ preventScroll: true }); }}>Back to message</button>
+              </div>
+            </section>}
           </div>}
 
           <div className="pc-thread" aria-live="polite">
+            <div className="pc-history-top">
+              {conversationRequests.paging && <div className="pc-history-skeleton" role="status" aria-label="Loading earlier conversation" aria-busy="true">
+                <span className="pc-history-skeleton-user" /><span className="pc-history-skeleton-response" /><span className="pc-history-skeleton-card" />
+              </div>}
+              {conversationRequests.pageError && <div className="pc-history-error" role="alert">
+                <span>Earlier messages could not be loaded.</span>
+                <button type="button" className="ck-link" onClick={() => void loadEarlier()}>Try again</button>
+              </div>}
+              {conversationRequests.error && <div className="pc-history-error" role="status">
+                <span>{conversationRequests.error}</span>
+                <button type="button" className="ck-link" onClick={conversationRequests.retryHistory}>Retry conversation history</button>
+              </div>}
+              {!conversationRequests.paging && !conversationRequests.pageError && (earlierTurnIndices.length > 0 || conversationRequests.canLoadOlder)
+                && <button type="button" className="ck-link pc-history-load" onClick={() => void loadEarlier()}>Load earlier messages</button>}
+            </div>
             {loaded && conversationRequests.loaded && !checks.length && <div className="pc-turn pc-ai-text pc-intro">
               <span>{latestCheck
                 ? latestCheck.phase === 'done'
@@ -528,28 +692,90 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
               {' '}Ask me to test something, for example “Test that a wrong password shows an error”.</span>
             </div>}
             {(!loaded || !conversationRequests.loaded) && !error && !conversationRequests.error && !timeline.length && <LoadingSkeleton className="pc-conversation-skeleton" label="Loading the conversation" />}
-            {conversationRequests.error && <p role="status">{conversationRequests.error}</p>}
-            {timeline.map(item => 'check' in item ? <div className="pc-turn" key={item.key}>
-                {item.check.focus && !item.check.id.startsWith('request-') && <p className="pc-msg is-me">{item.check.focus}</p>}
-                <ProjectCheckCard check={item.check} onNavigate={onNavigate} onOpen={openCheck} />
+            {visibleTimeline.map(item => 'check' in item ? <div className="pc-turn" key={item.key} data-conversation-key={item.key}>
+                {item.check.focus && !item.check.id.startsWith('request-') && <ConversationMessage text={item.check.focus} at={item.check.createdAt} />}
+                <ProjectCheckCard check={item.check} onNavigate={onNavigate} onOpen={openCheck} showOutcome />
               </div>
-              : 'request' in item ? <ConversationTurn key={item.key} request={item.request} onOpenFailure={item.request.ownerId === owner ? id => {
-                if (id === failureId) chatCardsRef.current?.scrollIntoView?.({ block: 'start', inline: 'nearest' });
-                else setOpenedFailureId(id);
-              } : undefined}
+              : 'request' in item ? <ConversationTurn key={item.key} anchorKey={item.key} request={item.request}
+                artifacts={artifacts}
+                executionCard={item.executionCard && (renderProgress => <ProjectCheckCard check={item.executionCard!} onNavigate={onNavigate} onOpen={openCheck}
+                  showOutcome={item.request.state === 'completed'} renderProgress={renderProgress} />)}
+                activityCheckName={evidenceId => {
+                  const referenced = checks.find(check => item.request.input.references.some(ref => !ref.findingId && !ref.testId
+                    && (!ref.checkId || check.id === ref.checkId) && (!ref.reviewId || check.reviewId === ref.reviewId)
+                    && (!ref.autoTestId || check.autoTestId === ref.autoTestId) && [ref.checkId && `check:${ref.checkId}`,
+                      ref.reviewId && `review:${ref.reviewId}`, ref.autoTestId && `browser:${ref.autoTestId}`].includes(evidenceId)));
+                  return referenced && checkName(referenced);
+                }}
+                onOpenActivity={evidenceId => {
+                  if (evidenceId.startsWith('conversation:')) {
+                    const key = `r:${evidenceId.slice('conversation:'.length)}`;
+                    if (!visibleTimeline.some(turn => turn.key === key)) return;
+                    return () => [...(scrollPaneRef.current?.querySelectorAll<HTMLElement>('[data-conversation-key]') ?? [])]
+                      .find(node => node.dataset.conversationKey === key)?.scrollIntoView({ block: 'nearest' });
+                  }
+                  const reference = item.request.input.references.find(ref => ref.findingId && `finding:${ref.findingId}` === evidenceId
+                    || ref.checkId && `check:${ref.checkId}` === evidenceId
+                    || ref.autoTestId && `browser:${ref.autoTestId}${ref.testId ? `:${ref.testId}` : ''}` === evidenceId
+                    || ref.reviewId && !ref.findingId && `review:${ref.reviewId}` === evidenceId);
+                  if (!reference) return;
+                  if (reference.findingId && reference.reviewId) return () => onNavigate({ name: 'review-finding', projectId: project.id,
+                    sessionId: reference.reviewId!, findingId: reference.findingId! });
+                  if (!reference.testId) {
+                    const check = checks.find(saved => (!reference.checkId || saved.id === reference.checkId) && (reference.reviewId || reference.autoTestId)
+                      && (!reference.reviewId || saved.reviewId === reference.reviewId) && (!reference.autoTestId || saved.autoTestId === reference.autoTestId));
+                    if (check) return () => openCheck(check);
+                  }
+                  return undefined;
+                }}
+                onOpenProblem={(evidenceId, browserRunId) => {
+                  const reference = item.request.input.references.find(ref =>
+                    (ref.findingId ? `finding:${ref.findingId}` === evidenceId
+                      : ref.testId ? `browser:${ref.autoTestId}:${ref.testId}` === evidenceId
+                        : ref.reviewId && ref.autoTestId ? `check:${ref.checkId ?? `${ref.reviewId}:${ref.autoTestId}`}` === evidenceId
+                          : ref.reviewId ? `review:${ref.reviewId}` === evidenceId
+                            : ref.autoTestId && `browser:${ref.autoTestId}` === evidenceId));
+                  if (!reference) return;
+                  if (browserRunId && reference.testId) {
+                    onNavigate({ name: 'dynamic-testing', projectId: project.id, runId: browserRunId });
+                    return;
+                  }
+                  const { reviewId, autoTestId, findingId } = reference;
+                  if (reviewId && findingId) {
+                    onNavigate({ name: 'review-finding', projectId: project.id, sessionId: reviewId, findingId });
+                    return;
+                  }
+                  const matchesReference = (check: CheckRecord) =>
+                    (!reviewId || check.reviewId === reviewId) && (!autoTestId || check.autoTestId === autoTestId);
+                  const savedCheck = (reference.checkId && checks.find(check => check.id === reference.checkId && matchesReference(check)))
+                    || checks.find(check => check.reviewId === reviewId && check.autoTestId === autoTestId)
+                    || checks.find(matchesReference);
+                  if (savedCheck) { openCheck(savedCheck); return; }
+                  if (!reviewId && !autoTestId) return;
+                  // Saved evidence can be opened on another device without first rebuilding its local Check index.
+                  const section = item.request.explanation?.sections.find(entry => entry.evidenceId === evidenceId);
+                  setFocusCheck({
+                    id: reference.checkId ?? evidenceId, projectId: project.id, projectName: project.name,
+                    title: section?.presentation === 'check' ? section.title : undefined,
+                    createdAt: item.request.createdAt, updatedAt: item.request.updatedAt, phase: 'done',
+                    mode: reviewId && autoTestId ? 'both' : reviewId ? 'code' : 'browser',
+                    focus: reference.checkFocus ?? '', notes: [], documents: [], reviewId, autoTestId,
+                  });
+                  toggleSide(true);
+                }}
                 replySourceExcerpt={item.request.replyTo?.status === 'resolved' ? replySources.get(item.request.replyTo.turnId) : undefined}
-                onReplyTo={replySources.has(item.request.id) ? () => {
+                onQuote={replySources.has(item.request.id) ? () => {
                   setBase(null);
                   setReplySelection({ projectId: project.id, ownerId: historyOwner, turnId: item.request.id });
                 } : undefined} />
               : 'session' in item
-              ? <Fragment key={item.key}><SessionTurn session={item.session} projectId={project.id} prefs={prefs} onNavigate={onNavigate}
+              ? <div key={item.key} className="pc-timeline-item" data-conversation-key={item.key}><SessionTurn session={item.session} projectId={project.id} prefs={prefs} onNavigate={onNavigate}
+                  card={item.browserCard && <ProjectCheckCard check={item.browserCard} onNavigate={onNavigate} onOpen={openCheck} externalProgress />}
                   onChange={ref => { setBase(ref); inputRef.current?.focus(); }}
                   onRerun={ref => submit({ rerun: [ref] })}
                   onCancel={id => { void api.cancelAutoTest(project.id, id).then(() => refresh()).catch(() => undefined); }} />
-                {item.browserCard && <div className="pc-turn"><ProjectCheckCard check={item.browserCard} onNavigate={onNavigate} onOpen={openCheck} /></div>}
-              </Fragment>
-              : <p key={item.key} className="pc-note"><Icon icon={Info} />{item.note.text}</p>)}
+              </div>
+              : <p key={item.key} className="pc-note" data-conversation-key={item.key}><Icon icon={Info} />{item.note.text}</p>)}
             {pending && <div className="pc-msg is-me">{'rerun' in pending ? `Run again: ${pending.rerun.map(item => item.name).join(', ')}` : pending.text}</div>}
             {pending && (
               <div className="pc-turn">

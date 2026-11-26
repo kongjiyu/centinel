@@ -882,7 +882,7 @@ export type Screen =
   /** Live while a check runs, then its Result (DESIGN.md §4.2, §4.3). */
   | { name: 'check'; checkId: string }
   /** A project as a conversation with ORIN (DESIGN.md §4.4). */
-  | { name: 'project'; projectId: string }
+  | { name: 'project'; projectId: string; questionFocus?: number }
   | { name: 'dashboard' }
   | {
       name: 'projects';

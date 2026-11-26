@@ -7,7 +7,9 @@ export interface ConversationStore {
   list(projectId: string, before?: { ownerId: string; createdAt: string }): Promise<ConversationRequest[]>;
   listEarlierCompleted(projectId: string, ownerId: string, before: string, limit: number): Promise<ConversationRequest[]>;
   listEarlierTurns(projectId: string, ownerId: string, before: string, limit: number): Promise<ConversationRequest[]>;
+  findEarlierCompleted?(projectId: string, ownerId: string, before: string, terms: string[]): Promise<ConversationRequest[]>;
   listActive?(projectId: string, ownerId: string): Promise<ConversationRequest[]>;
+  listPendingQuestions?(projectIds: string[], ownerId: string): Promise<ConversationRequest[]>;
   create(record: ConversationRequest): Promise<boolean>;
   update(record: ConversationRequest, revision: number): Promise<boolean>;
 }
@@ -38,6 +40,13 @@ export class SupabaseConversationStore implements ConversationStore {
     }
     return (result.data ?? []).flatMap(row => row.payload?.request ? [row.payload.request as ConversationRequest] : []);
   }
+  async page(projectId: string, ownerId: string, before?: { createdAt: string; id: string }, limit = 50) {
+    let query = this.query().eq('project_id', projectId).eq('actor_id', ownerId);
+    if (before) query = query.or(`created_at.lt.${before.createdAt},and(created_at.eq.${before.createdAt},id.lt.${before.id})`);
+    const result = await query.order('created_at', { ascending: false }).order('id', { ascending: false }).limit(limit);
+    if (result.error) throw new DynamicContractError(503, 'Conversation history is temporarily unavailable.');
+    return (result.data ?? []).flatMap(row => row.payload?.request ? [row.payload.request as ConversationRequest] : []);
+  }
   async listEarlierCompleted(projectId: string, ownerId: string, before: string, limit: number) {
     const result = await this.query().eq('project_id', projectId).eq('actor_id', ownerId)
       .eq('payload->request->>state', 'completed').lt('created_at', before)
@@ -49,6 +58,17 @@ export class SupabaseConversationStore implements ConversationStore {
     const result = await this.query().eq('project_id', projectId).eq('actor_id', ownerId)
       .lt('created_at', before)
       .order('created_at', { ascending: false }).order('id', { ascending: false }).limit(limit);
+    if (result.error) throw new Error('Earlier conversation turns are unavailable.');
+    return (result.data ?? []).map(row => row.payload.request as ConversationRequest);
+  }
+  async findEarlierCompleted(projectId: string, ownerId: string, before: string, terms: string[]) {
+    const literals = terms.filter(term => /^[a-z0-9]{4,32}$/i.test(term)).slice(0, 3);
+    if (!literals.length) return [];
+    const matches = literals.flatMap(term => ['payload->request->input->>text', 'payload->request->>reply']
+      .map(field => `${field}.ilike.*${term}*`));
+    const result = await this.query().eq('project_id', projectId).eq('actor_id', ownerId)
+      .eq('payload->request->>state', 'completed').lt('created_at', before).or(matches.join(','))
+      .order('created_at', { ascending: false }).order('id', { ascending: false }).limit(12);
     if (result.error) throw new Error('Earlier conversation turns are unavailable.');
     return (result.data ?? []).map(row => row.payload.request as ConversationRequest);
   }
@@ -66,6 +86,29 @@ export class SupabaseConversationStore implements ConversationStore {
       records.push(...rows.map(row => row.payload.request as ConversationRequest));
       if (rows.length < 1000) return records;
       after = rows[rows.length - 1].id;
+    }
+  }
+  async listPendingQuestions(projectIds: string[], ownerId: string) {
+    const ids = [...new Set(projectIds)].slice(0, 100);
+    if (!ids.length) return [];
+    const records: ConversationRequest[] = [];
+    let after: string | undefined;
+    for (;;) {
+      let query = this.client.from('audit_events').select('id,payload,project_id').eq('entity_type', entity).eq('event_type', event)
+        .in('project_id', ids).eq('actor_id', ownerId)
+        .eq('payload->request->>state', 'completed').not('payload->request->>pendingQuestionId', 'is', null)
+        .order('id').limit(500);
+      if (after) query = query.gt('id', after);
+      const result = await query;
+      if (result.error) throw new DynamicContractError(503, 'Pending conversation questions are temporarily unavailable.');
+      const rows = result.data ?? [];
+      records.push(...rows.flatMap(row => {
+        const request = row.payload?.request as ConversationRequest | undefined;
+        return request && request.ownerId === ownerId && ids.includes(request.projectId)
+          && request.state === 'completed' && !!request.pendingQuestionId ? [request] : [];
+      }));
+      if (rows.length < 500) return records.sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id));
+      after = String(rows[rows.length - 1].id);
     }
   }
   async create(record: ConversationRequest) {

@@ -211,8 +211,8 @@ function CheckInterruptionNotices({ check, data, onNavigate }: { check: CheckRec
 }
 
 /** The running check. embedded: shown inside the project side panel, without the screen's own frame (25 Nov 2026). */
-export function LiveView({ check, data, onNavigate, header, embedded = false }: { check: CheckRecord; data: CheckData; onNavigate: Navigate; header?: React.ReactNode; embedded?: boolean }) {
-  const now = useNow(true);
+export function LiveView({ check, data, onNavigate, header, embedded = false, conversationProgress = false }: { check: CheckRecord; data: CheckData; onNavigate: Navigate; header?: React.ReactNode; embedded?: boolean; conversationProgress?: boolean }) {
+  const now = useNow(!conversationProgress);
   const [stopping, setStopping] = useState(false);
   const [stopError, setStopError] = useState<string | null>(null);
   const { result, review, findings, autoTest, live } = data;
@@ -237,6 +237,9 @@ export function LiveView({ check, data, onNavigate, header, embedded = false }: 
 
   const codeItems = result.codeState === 'running' || !data.evidenceLoaded ? live.problems : result.foundInCode;
   const runningTests = (autoTest?.tests ?? []).filter(test => test.state === 'running');
+  const lane = (name: string, state: string, content: React.ReactNode) => conversationProgress
+    ? <details className="pc-progress-lane"><summary><span>{name}</span><span>{state === 'done' ? 'Completed' : state === 'running' ? 'In progress' : state === 'paused' ? 'Paused' : 'Not checked'}</span></summary>{content}</details>
+    : content;
 
   const frame = (body: React.ReactNode) => embedded ? <div className="ck-live is-embedded">{body}</div> : (
     <div className="ck-screen ck-live">
@@ -248,9 +251,10 @@ export function LiveView({ check, data, onNavigate, header, embedded = false }: 
       <>
         {header}
         <header className="ck-live-head">
-          {header || embedded ? <h2 className="ck-live-status">Checking <span className="ci-pair ck-elapsed"><Icon icon={Clock} /><span className="ci-text">{formatElapsed(now - Date.parse(check.createdAt))}</span></span></h2>
-            : <h1 className="ck-title">Checking {check.title || check.projectName}<span className="ci-pair ck-elapsed"><Icon icon={Clock} /><span className="ci-text">{formatElapsed(now - Date.parse(check.createdAt))}</span></span></h1>}
-          {check.phase === 'running' && <button type="button" className="ck-button" onClick={() => void stop()} disabled={stopping}><Icon icon={Square} />{stopping ? 'Stopping…' : 'Stop'}</button>}
+          {!conversationProgress && (header || embedded ? <h2 className="ck-live-status">Checking <span className="ci-pair ck-elapsed"><Icon icon={Clock} /><span className="ci-text">{formatElapsed(now - Date.parse(check.createdAt))}</span></span></h2>
+            : <h1 className="ck-title">Checking {check.title || check.projectName}<span className="ci-pair ck-elapsed"><Icon icon={Clock} /><span className="ci-text">{formatElapsed(now - Date.parse(check.createdAt))}</span></span></h1>)}
+          {check.phase === 'running' && (!conversationProgress || result.codeState === 'running' || result.browserState === 'running')
+            && <button type="button" className="ck-button" onClick={() => void stop()} disabled={stopping}><Icon icon={Square} />{stopping ? 'Stopping…' : 'Stop'}</button>}
         </header>
         <StageStrip steps={liveSteps(check, data)} />
         {stopError && <p className="ck-inline-message" role="alert"><Icon icon={TriangleAlert} shape="triangle" />{stopError}</p>}
@@ -259,7 +263,7 @@ export function LiveView({ check, data, onNavigate, header, embedded = false }: 
         {data.loadError && <p className="ck-inline-message is-quiet" role="status"><Icon icon={Info} />{data.loadError}</p>}
 
         <div className={`ck-columns${wantsCode && wantsBrowser ? '' : ' is-single'}`} aria-live="polite">
-          {wantsCode && (
+          {wantsCode && lane('Code', result.codeState, (
             <section className="ck-col" aria-label="Found in the code">
               <div className="ck-col-head">
                 <span className="ci-pair"><Icon icon={Code} /><span className="ci-text">Found in the code{codeItems.length > 0 && <span className="ck-tabular"> · {codeItems.length}</span>}</span></span>
@@ -285,8 +289,8 @@ export function LiveView({ check, data, onNavigate, header, embedded = false }: 
               </ul>
               {result.codeState === 'running' && !codeItems.length && review && <p className="ck-col-empty">Problems appear here as soon as each one is confirmed.</p>}
             </section>
-          )}
-          {wantsBrowser && (
+          ))}
+          {wantsBrowser && lane('Browser', result.browserState, (
             <section className="ck-col" aria-label="Proving in the browser">
               <div className="ck-col-head">
                 <span className="ci-pair"><Icon icon={MonitorCheck} /><span className="ci-text">{wantsCode ? 'Proving in the browser' : 'Testing in the browser'}</span></span>
@@ -311,7 +315,7 @@ export function LiveView({ check, data, onNavigate, header, embedded = false }: 
               )}
               {runningTests.length > 0 && <span className="ck-visually-hidden">{runningTests.map(test => `${test.name} in browser ${test.laneId ? laneNumber(test.laneId) : ''}`).join(', ')}</span>}
             </section>
-          )}
+          ))}
         </div>
       </>
   );

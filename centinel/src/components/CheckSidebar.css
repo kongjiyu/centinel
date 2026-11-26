@@ -117,8 +117,29 @@ div.app-shell.workspace-mode .sidebar .nav-item.nav-new-check.active {
 .sidebar-project-row:hover { background: var(--color-surface-subtle); }
 .sidebar-project-row.active { background: var(--color-surface-selected); }
 .sidebar-project-row .sidebar-project { padding-inline-end: 38px; }
+.sidebar-project-row:has(.sidebar-project-question) .sidebar-project { padding-inline-end: 72px; }
 .sidebar-project-row .sidebar-project:is(:hover, .active) { background: transparent; }
 .sidebar-project.sidebar-check { grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--space-2); border: 0; }
+.sidebar-project-question {
+  position: absolute;
+  inset-inline-end: 3px;
+  top: 50%;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  transform: translateY(-50%);
+  background: transparent;
+  color: var(--color-primary);
+  cursor: pointer;
+}
+.sidebar-project-question:hover { background: var(--color-surface-hover); }
+.sidebar-project-question:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.sidebar-project-question-ring { position: absolute; inset: 5px; width: 20px; height: 20px; transform: rotate(-90deg); overflow: visible; }
+.sidebar-project-question-ring circle { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
 .sidebar-project-options, .sidebar-project-more {
   padding: var(--space-2);
   border: 0;
@@ -129,6 +150,7 @@ div.app-shell.workspace-mode .sidebar .nav-item.nav-new-check.active {
   cursor: pointer;
 }
 .sidebar-project-options { position: absolute; inset-inline-end: 3px; top: 50%; transform: translateY(-50%); display: grid; min-width: 32px; min-height: 32px; place-items: center; }
+.sidebar-project-options.has-question { inset-inline-end: 34px; }
 .sidebar-project-more { margin-top: var(--space-1); font-size: 12px; }
 .sidebar-project-options:hover { color: var(--color-text); }
 .sidebar-project-more:hover { background: var(--color-surface-hover); color: var(--color-text); }

@@ -535,6 +535,7 @@ export class SupabaseStaticReviewRepository implements StaticReviewRepository, G
       || text(row, 'event_type') === 'review_analysis_map_saved'
       || text(row, 'event_type') === 'review_analysis_batch_saved'
       || text(row, 'event_type') === 'review_live_finding_titles'
+      || text(row, 'event_type') === 'review_stage_started'
       || text(row, 'event_type') === 'review_assessment_batch_started'
       || text(row, 'event_type') === 'review_analysis_batch_unverified'
       || text(row, 'event_type') === 'review_assessment_validated'

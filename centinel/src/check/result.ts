@@ -165,7 +165,7 @@ export function browserProblem(test: AutoTestEntry): CheckProblem {
     location: ref ? `${ref.path}:${ref.line}` : null,
     risk: null,
     marks: ['browser'],
-    browserChecks: fixed?.length ? fixed : checks.length ? checks : [{ expected: test.goal, observed: test.reason?.trim() || 'The browser test failed.' }],
+    browserChecks: fixed?.length ? fixed : checks.length ? checks : [{ expected: test.goal, observed: plainReason(test.reason) || 'The browser test failed.' }],
     aiExplanation: test.explanation ?? null,
     testId: test.id,
     runId: test.runId,

@@ -1,4 +1,4 @@
-import { useId } from 'react';
+import { TriangleAlert } from 'lucide-react';
 import type { ConversationRequest } from '../../check/conversationTypes';
 
 const recovery = {
@@ -40,18 +40,10 @@ export function conversationFailureDetails(request: ConversationRequest) {
     : request.answerUnavailable ? 'validation' : request.failureStage ?? 'unknown')];
 }
 
-export function ConversationFailure({ request, onClose }: { request: ConversationRequest; onClose: () => void }) {
-  const headingId = useId();
-  const failure = conversationFailureDetails(request);
-  if (!failure) return null;
+export function ConversationFailure({ failure }: { failure: NonNullable<ReturnType<typeof conversationFailureDetails>> }) {
   const [title, description, nextStep] = failure;
-  return <section className="pc-card pc-chat-card" aria-labelledby={headingId}>
-      <h2 id={headingId} className="pc-card-title" aria-live="polite">{title}</h2>
-      <div className="pc-markdown">
-        <p>{description}</p>
-        <p><strong>What to do next</strong></p>
-        <p>{nextStep}</p>
-      </div>
-      <button type="button" className="ck-link pc-chat-card-toggle" onClick={onClose}>Dismiss error</button>
-  </section>;
+  return <div className="pc-inline-error" role="status">
+    <TriangleAlert size={17} aria-hidden="true" />
+    <p><strong>{title}.</strong> {description} {nextStep}</p>
+  </div>;
 }

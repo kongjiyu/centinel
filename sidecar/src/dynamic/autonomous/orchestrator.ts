@@ -42,7 +42,7 @@ export type AutoTestSession = {
   createdAt: string; updatedAt: string; stage: AutoTestStage;
   error: { reason: string; message: string; log?: string } | null;
   repository: { fingerprint: string; files: number; routes: number; forms: number; requirements: boolean; truncated: boolean; persistence: string[] } | null;
-  launch: { recipeId: string; label: string; framework: string; url: string | null; portHonored: boolean | null; installing: boolean; log: string } | null;
+  launch: { recipeId: string; label: string; framework: string; url: string | null; portHonored: boolean | null; installing: boolean; installStarted?: boolean; log: string } | null;
   exploration: { pages: Array<{ path: string; controls: number }>; controls: number } | null;
   lanes: AutoTestLane[]; laneLimit: number; laneNote: string | null;
   tests: AutoTestEntry[]; dropped: DroppedTest[];
@@ -184,6 +184,7 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
         if (event.stage === 'detected') session.launch = { recipeId: event.recipe.id, label: event.recipe.label, framework: event.recipe.framework, url: null, portHonored: null, installing: false, log: '' };
         else if (session.launch && (event.stage === 'installing' || event.stage === 'starting')) {
           session.launch.installing = event.stage === 'installing';
+          if (session.launch.installing) session.launch.installStarted = true;
           session.launch.label = event.command;
           if (event.log) session.launch.log = event.log.slice(-4000);
           if (Date.now() - lastLog > 1000) { lastLog = Date.now(); void persist().catch(() => undefined); }

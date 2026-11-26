@@ -4,6 +4,7 @@
  * Unknown messages are shown as they are, never guessed at.
  */
 const PLAIN: Array<[RegExp, string]> = [
+  [/Model returned invalid response|not an executable browser action|No valid JSON action/i, 'ORIN could not read the AI’s next browser step.'],
   [/target must be unique/i, 'ORIN could not tell which control the AI meant, so it did not press it.'],
   [/target is not on the page|element reference is (unavailable|absent)|unique visible and enabled (target|private input|upload input|download control) is unavailable|target is absent|target is unavailable/i,
     'The AI pointed at a control that was not on the page at that moment, so ORIN did not press it.'],
@@ -14,7 +15,6 @@ const PLAIN: Array<[RegExp, string]> = [
   [/Proposed visible text was not observed/i, 'The AI looked for text that was not on the page.'],
   [/This key can activate or submit/i, 'The AI tried to submit with a key press instead of pressing the button, which this test does not allow.'],
   [/private (input|variable)|variable is not approved/i, 'The test needed a saved private value that is not set up on this device.'],
-  [/not an executable browser action|No valid JSON action/i, 'The AI’s next step could not be read.'],
 ];
 
 export function plainReason(message: string | null | undefined): string | null {

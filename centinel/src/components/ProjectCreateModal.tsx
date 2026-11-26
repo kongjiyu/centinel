@@ -161,7 +161,7 @@ export function ProjectCreateModal({ isOpen, onClose, onCreate, onCreated, onRep
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={close} title={onRepositorySelected ? "Add Repository" : "Add Project"} width={620}>
+    <Modal isOpen={isOpen} onClose={close} title={onRepositorySelected ? "Add Repository" : "Add Project"} width={620} appBackdrop={!!onRepositorySelected}>
       {createdWithWarnings ? <div className="project-create-modal-form">
         <p role="status">{createdWithWarnings.name} was created. Some sources need attention.</p>
         <ul>{createdWithWarnings.sourceImportWarnings?.map(warning => <li key={warning}>{warning}</li>)}</ul>
