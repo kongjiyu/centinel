@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { Code, ListX, MonitorCheck, SquareChartGantt, ArrowUpRight, ChevronRight, Copy, Download, MessageCircle, TriangleAlert } from 'lucide-react';
+import { Code, ListX, MonitorCheck, SquareChartGantt, ArrowUpRight, ChevronRight, Copy, Download, LoaderCircle, MessageCircle, Quote, TriangleAlert } from 'lucide-react';
 import { api } from '../../api/client';
 import { LoadingSkeleton } from '../../components/LoadingSkeleton';
 import { Icon } from '../../components/Icon';
@@ -21,7 +21,7 @@ import { stageHeadline } from '../../autotest/presentation';
 const checkTime = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
 /** A check's summary in the project conversation. With onOpen, View opens its full result in the side panel. */
-export function ProjectCheckCard({ check, onNavigate, onOpen, showOutcome, externalProgress, renderProgress }: { check: CheckRecord; onNavigate: (screen: Screen) => void; onOpen?(check: CheckRecord): void; showOutcome?: boolean; externalProgress?: boolean; renderProgress?: (work: CheckWorkBranches, currentWork?: ReactNode) => ReactNode }) {
+export function ProjectCheckCard({ check, onNavigate, onOpen, showOutcome, savedOutcome, onQuote, externalProgress, renderProgress }: { check: CheckRecord; onNavigate: (screen: Screen) => void; onOpen?(check: CheckRecord): void; showOutcome?: boolean; savedOutcome?: string; onQuote?(): void; externalProgress?: boolean; renderProgress?: (work: CheckWorkBranches, currentWork?: ReactNode) => ReactNode }) {
   const data = useCheckData(check);
   const card = useRef<HTMLElement>(null);
   const gapsId = useId();
@@ -80,10 +80,10 @@ export function ProjectCheckCard({ check, onNavigate, onOpen, showOutcome, exter
   const browserOutcome = result?.browserState === 'done'
     ? `The Browser Check recorded ${result.passedBrowserTests} passed ${result.passedBrowserTests === 1 ? 'test' : 'tests'}.`
     : 'I couldn’t finish the Browser Check.';
-  const outcome = !ready || running || !result ? '' : [
+  const outcome = savedOutcome ?? (!ready || running || !result ? '' : [
     check.mode !== 'browser' && codeOutcome,
     check.mode !== 'code' && browserOutcome,
-  ].filter(Boolean).join(' ');
+  ].filter(Boolean).join(' '));
   const outcomeIncomplete = !!result && !running && (check.mode !== 'browser' && result.codeState !== 'done'
     || check.mode !== 'code' && result.browserState !== 'done');
   const end = running ? now : Date.parse(check.finishedAt ?? check.updatedAt);
@@ -96,7 +96,7 @@ export function ProjectCheckCard({ check, onNavigate, onOpen, showOutcome, exter
     : data?.result.browserState === 'running' && data.autoTest ? stageHeadline(data.autoTest) : undefined;
   return <Fragment>
     {renderProgress ? renderProgress(work, currentWork) : !externalProgress && Number.isFinite(startedAt) && Number.isFinite(end) && <details open={running} className="pc-progress pc-combined-progress">
-      <summary className="pc-progress-summary"><span>{running ? 'Working for' : 'Worked for'} {formatDuration(Math.max(0, end - startedAt))}</span>{running && currentWork && <span>{currentWork}</span>}<Icon icon={ChevronRight} /></summary>
+      <summary className="pc-progress-summary">{running && <Icon icon={LoaderCircle} className="ci-spin" />}<span>{running ? 'Working for' : 'Worked for'} {formatDuration(Math.max(0, end - startedAt))}</span>{running && currentWork && <span>{currentWork}</span>}<Icon icon={ChevronRight} /></summary>
       {(work.code || work.browser) && <div className="pc-progress-body">{work.code}{work.browser}</div>}
     </details>}
     <section ref={card} className="pc-card pc-check-card" aria-label={'Check ' + checkName(check)}>
@@ -131,7 +131,7 @@ export function ProjectCheckCard({ check, onNavigate, onOpen, showOutcome, exter
     </ul>}
     {data?.loadError && <p className="pc-sub" role="status">{data.loadError}</p>}
     {/* A running check plays here in the conversation: stages, files, problems so far and the browsers (25 Nov 2026). */}
-    {running && data ? <LiveView check={combined ? { ...check, mode: 'both' } : check} data={data} onNavigate={onNavigate} embedded />
+    {running && data ? <LiveView check={combined ? { ...check, mode: 'both' } : check} data={data} onNavigate={onNavigate} embedded stopInComposer={Boolean(renderProgress)} />
     : !ready ? !data?.loadError && <LoadingSkeleton className="ck-metrics-skeleton" variant="cards" rows={check.mode === 'both' ? 3 : 2} label="Loading saved check" /> : <>
       {!result?.finished && <p role="status">{check.phase === 'failed' ? 'The check could not start.' : 'Check in progress'}</p>}
       <dl className="pc-check-card-counts">
@@ -174,6 +174,7 @@ export function ProjectCheckCard({ check, onNavigate, onOpen, showOutcome, exter
         <button type="button" className="pc-message-action" aria-label="Copy reply" title="Copy reply" onClick={() => {
           void copyConversationText(outcome).then(() => setCopyStatus('Reply copied'), () => setCopyStatus('Copy failed'));
         }}><Copy size={14} aria-hidden="true" /></button>
+        {onQuote && <button type="button" className="pc-message-action" aria-label="Quote reply" title="Quote reply" onClick={onQuote}><Quote size={14} aria-hidden="true" /></button>}
         <span className="pc-copy-status" role="status">{copyStatus}</span>
       </footer>
     </div>}

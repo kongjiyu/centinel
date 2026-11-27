@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { ConversationRequest } from '../../check/conversationTypes';
@@ -15,12 +15,28 @@ const savedReply = {
   reply: '## Saved answer\n\n' + 'Full reply detail. '.repeat(40),
 } as ConversationRequest;
 
-function quote(projectId = 'project', turnId = 'older-turn') {
+function quote(projectId = 'project', turnId = 'older-turn', previewText: string | null = 'Compact reply preview.') {
   return <ConversationQuotePreview className="pc-reply-attribution" projectId={projectId} ownerId="owner"
-    turnId={turnId} preview="Compact reply preview." label="Quoted reply">
+    turnId={turnId} preview={previewText ?? undefined} label="Quoted reply">
     {preview => <><strong>Quoted reply</strong>{preview && <span>{preview}</span>}</>}
   </ConversationQuotePreview>;
 }
+
+it('renders the original Markdown structure in the full preview and a clean excerpt on the chip', async () => {
+  sessionStorage.setItem('centinel:supabase-user-id', 'owner');
+  vi.mocked(api.conversationRequest).mockResolvedValue({
+    ...savedReply, replyFormat: 'markdown',
+    reply: '**Documented project scope**\n\n| Area | Outcome |\n| --- | --- |\n| Checkout | Blocked |\n\n- Read `src/orders.js`\n- See [requirements](https://example.com/docs)',
+  });
+  render(quote('project', 'older-turn', null));
+  await userEvent.setup().tab();
+  const tooltip = within(screen.getByRole('tooltip'));
+  expect(await tooltip.findByRole('table')).toHaveTextContent('Checkout');
+  expect(tooltip.getByRole('list')).toHaveTextContent('Read src/orders.js');
+  expect(tooltip.getByText('src/orders.js').tagName).toBe('CODE');
+  expect(tooltip.queryByRole('link')).not.toBeInTheDocument();
+  expect(screen.getAllByText('Documented project scope')).toHaveLength(2);
+});
 
 afterEach(() => {
   cleanup();

@@ -2,6 +2,7 @@
 import { listApiProviderModels } from './model/apiProviderModels.js';
 import { generateCheckTitle } from './review/checkTitle.js';
 import { CONVERSATION_POLICY_VERSION, ConversationBrowserStartupError, ConversationRuntime, conversationExecutionText, hash, parseConversationInput, pendingConversationQuestion, type AnswerConversationQuestionInput, type ConversationDeps } from './conversation/service.js';
+import { loadProjectCoverage } from './conversation/projectCoverage.js';
 import { SupabaseConversationStore } from './conversation/store.js';
 import { resolveConversationEvidence } from './conversation/evidence.js';
 import { presentSavedSelection } from './conversation/savedExplanation.js';
@@ -861,6 +862,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
           const deps: ConversationDeps = {
             ownerId, store, authorize: async id => { await authGateway.requireProjectMember(currentAuth(), id); }, held: isAssessmentHeld,
             resolve: (id, references, signal, text) => resolveConversationEvidence(currentClient(), ownerId, id, references, signal, true, text),
+            coverage: (id, signal) => loadProjectCoverage(currentClient(), ownerId, id, signal),
             plan: (record, evidence, signal, earlierTurns) => planConversation(currentClient, record, evidence, AbortSignal.any([signal, AbortSignal.timeout(120000)]), earlierTurns),
             execute: async (record, signal, checkpoint) => {
               await authGateway.requireProjectMember(currentAuth(), projectId);
@@ -904,6 +906,8 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
                     const saved = await reviewRepository(currentClient()).getReview(result.review.id);
                     if (saved?.progress?.stage === 'provider_paused') throw new ModelProviderError('The provider paused this Review.', { code: 'provider_paused', retryable: false });
                     if (!saved || ['failed', 'cancelled', 'blocked'].includes(saved.status)) throw new Error('The scoped Review did not complete.');
+                    const count = saved.deterministicFindingCount + saved.modelFindingCount;
+                    await checkpoint({ executionReply: `I finished the Code Review and saved ${count === 1 ? 'one finding' : `${count} findings`}.${saved.progress?.coverage === 'partial' ? ' Some scope remains unverified.' : ''}` });
                   } finally { signal.removeEventListener('abort', abort); }
                 } catch (error) {
                   await runtime.cancel({ reviewId: result.review.id }).catch(() => undefined);
@@ -953,12 +957,19 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
                 signal.addEventListener('abort', abort, { once: true });
                 try {
                   const saved = await autoTestRuntime.start(session, childDeps);
-                  if (saved.error?.reason === 'provider_paused') throw new ModelProviderError('The provider paused this browser check.', { code: 'provider_paused', retryable: false });
+                  if (saved.error?.reason === 'provider_paused') throw new ModelProviderError(saved.error.message, { code: 'provider_paused', retryable: false });
                   if (saved.stage === 'failed' && !saved.launch?.url && !saved.tests.length
                     && ['unsupported', 'unknown_recipe', 'tool_missing', 'install_failed', 'exited', 'not_ready', 'launch_failed'].includes(saved.error?.reason ?? '')) {
                     throw new ConversationBrowserStartupError('The browser app could not start.');
                   }
                   if (saved.stage !== 'completed' || !saved.tests.length) throw new Error('The browser verification did not produce a completed test.');
+                  const passed = saved.tests.filter(test => test.state === 'passed').length;
+                  const failure = saved.tests.find(test => test.state === 'failed' && test.checkResults?.some(check => check.verdict === 'failed'));
+                  const executionReply = failure
+                    ? `I found a problem in “${failure.name}”. The page did not meet the saved assertion.`
+                    : passed === 0 ? 'The Browser Check finished without verifying the requested behavior.'
+                      : `The Browser Check recorded ${passed} passed ${passed === 1 ? 'test' : 'tests'}.`;
+                  await checkpoint({ executionReply });
                 } finally { signal.removeEventListener('abort', abort); }
               }
             },

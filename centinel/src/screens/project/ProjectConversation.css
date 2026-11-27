@@ -338,6 +338,7 @@
 .pc-saved-group .pc-table-scroll { max-inline-size: 100%; overscroll-behavior-inline: contain; }
 .pc-conversation-request table { inline-size: 100%; border-collapse: collapse; text-align: start; }
 .pc-conversation-request :is(td, th) { border-block-end: 1px solid var(--color-border); padding: var(--space-2); text-align: start; vertical-align: top; }
+.pc-conversation-request .pc-markdown table :is(td, th) { min-inline-size: 9rem; overflow-wrap: break-word; }
 .pc-conversation-request th { color: var(--color-text); }
 .pc-conversation-request pre { padding: var(--space-2) var(--space-3); overflow: auto; white-space: pre; border-radius: var(--radius-card); background: var(--color-surface-subtle); }
 .pc-conversation-request figure { margin-inline: 0; }
@@ -564,10 +565,10 @@
 .pc-reply-chip { margin: 0 28px var(--space-2) 0; padding: 4px 5px 4px 9px; border-radius: 8px; background: var(--color-surface-subtle); }
 .pc-reply-attribution { margin-block-end: var(--space-2); padding: 4px 8px; border-radius: var(--radius-inner); background: color-mix(in srgb, var(--color-surface) 70%, transparent); }
 .pc-reply-chip > svg, .pc-reply-attribution > svg { flex: none; }
-.pc-reply-chip > div, .pc-reply-attribution > div { flex: 1; min-inline-size: 0; }
-.pc-reply-chip strong, .pc-reply-attribution strong { display: block; color: var(--color-text); font-weight: 600; }
-.pc-reply-chip > div > span, .pc-reply-attribution > div > span { display: block; margin-block-start: 2px; overflow-wrap: anywhere; }
-.pc-reply-chip > div > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pc-reply-chip > div:not(.pc-reply-tooltip), .pc-reply-attribution > div:not(.pc-reply-tooltip) { flex: 1; min-inline-size: 0; }
+.pc-reply-chip > div:not(.pc-reply-tooltip) > strong, .pc-reply-attribution > div:not(.pc-reply-tooltip) > strong { display: block; color: var(--color-text); font-weight: 600; }
+.pc-reply-chip > div:not(.pc-reply-tooltip) > span, .pc-reply-attribution > div:not(.pc-reply-tooltip) > span { display: block; margin-block-start: 2px; overflow-wrap: anywhere; }
+.pc-reply-chip > div:not(.pc-reply-tooltip) > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pc-reply-tooltip {
   position: absolute; z-index: 50; inset-block-start: calc(100% - 1px); inset-inline: 0; display: block;
   inline-size: auto; max-block-size: min(36vh, 18rem); overflow: auto; overscroll-behavior: contain;
@@ -578,6 +579,9 @@
   opacity: 0; visibility: hidden; pointer-events: auto;
 }
 .pc-quote-preview:is(:hover, :focus-within) .pc-reply-tooltip { opacity: 1; visibility: visible; }
+.pc-reply-tooltip .pc-table-scroll, .pc-reply-tooltip pre { max-inline-size: 100%; overflow: auto; }
+.pc-reply-tooltip table { inline-size: 100%; border-collapse: collapse; }
+.pc-reply-tooltip table :is(th, td) { min-inline-size: 8rem; padding: var(--space-1) var(--space-2); border-block-end: 1px solid var(--color-border); text-align: start; vertical-align: top; overflow-wrap: break-word; }
 .pc-reply-tooltip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .pc-reply-chip .pc-reply-tooltip { inset-block-start: auto; inset-block-end: calc(100% - 1px); }
 .pc-quote-preview:focus-visible { outline: none; box-shadow: var(--focus-ring); }
@@ -718,7 +722,7 @@
 .pc-ov-open-original:hover, .pc-saved-open-original:hover { color: var(--color-text); }
 .pc-ov-open-original:focus-visible, .pc-saved-open-original:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .pc-saved-check { display: grid; gap: var(--space-3); }
-.pc-saved-check .pc-check-card-heading { align-items: flex-start; }
+.pc-saved-check .pc-check-card-heading { align-items: flex-start; flex-wrap: nowrap; }
 .pc-saved-check .pc-check-card-title { flex: 1 1 auto; align-items: baseline; gap: var(--space-1) var(--space-2); }
 .pc-saved-check .pc-check-card-name { min-inline-size: 0; }
 .pc-saved-check .pc-check-card-title p { margin: 0; }
@@ -728,6 +732,58 @@
 .pc-saved-check .pc-check-details > p { margin-block: var(--space-2); }
 .pc-saved-check .pc-check-details > section { margin-block-start: var(--space-3); }
 .pc-saved-check .pc-check-details > section h3 { font-size: 1em; }
+.pc-inline-evidence > :is(.pc-saved-check, .pc-ov-issue) {
+  border-radius: var(--radius-inner);
+  box-shadow: none;
+}
+.pc-inline-evidence > .pc-saved-check {
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+.pc-saved-check .pc-check-card-heading { margin: 0; }
+.pc-saved-check .pc-check-card-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+  margin: 0;
+  padding-block: var(--space-2);
+  border-block: 1px solid var(--color-border);
+}
+.pc-saved-check .pc-check-card-counts > div {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.pc-saved-check .pc-check-card-counts dd { margin: 0; font-size: inherit; font-variant-numeric: tabular-nums; }
+.pc-saved-check .pc-saved-group { padding: var(--space-3) 0 0; border: 0; border-block-start: 1px solid var(--color-border); border-radius: 0; background: transparent; }
+.pc-saved-check .pc-saved-group > h3 { margin-block: 0; }
+.pc-saved-check .pc-saved-scope ul { margin-block: var(--space-1) 0; padding-inline-start: 1.25rem; }
+.pc-saved-check table { inline-size: 100%; border-collapse: collapse; }
+.pc-saved-check table :is(th, td) { padding: var(--space-2); text-align: start; vertical-align: top; border-block-end: 1px solid var(--color-border); }
+.pc-saved-check table th { font-weight: 500; }
+.pc-saved-check table[aria-label="Saved Browser measurements"] td { width: 1%; text-align: end; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pc-saved-check .pc-check-details > .pc-table-scroll th { inline-size: clamp(7rem, 20%, 12rem); overflow-wrap: normal; }
+.pc-saved-check .pc-browser-tests { min-inline-size: 32rem; }
+.pc-saved-check .pc-browser-tests :is(th, td):first-child { inline-size: 12rem; }
+.pc-saved-check .pc-browser-tests :is(th, td):nth-child(2) { inline-size: 6rem; }
+.pc-saved-check .pc-browser-tests :is(th, td):last-child { min-inline-size: 14rem; }
+.pc-inline-evidence > .pc-ov-issue .pc-ov-expect {
+  gap: var(--space-4);
+  padding: var(--space-2) 0;
+  border-radius: 0;
+  border-block-start: 1px solid var(--color-border);
+  background: transparent;
+}
+.pc-inline-evidence > .pc-ov-issue .pc-ov-detail { padding-block-start: var(--space-2); }
+.pc-inline-evidence > .pc-ov-issue .pc-evidence-limitations {
+  padding: var(--space-2) 0 0;
+  margin-block: var(--space-2) 0;
+  border-block-start: 1px solid var(--color-border);
+  list-style: none;
+}
 .pc-evidence-section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-2); }
 .pc-evidence-section-heading h3 { min-inline-size: 0; margin: 0; overflow-wrap: anywhere; }
 .pc-evidence-section-heading .pc-saved-open-original { margin-block: calc(-1 * var(--space-1)); margin-inline-end: calc(-1 * var(--space-1)); }

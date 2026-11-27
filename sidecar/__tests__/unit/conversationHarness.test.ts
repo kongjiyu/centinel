@@ -7,6 +7,8 @@ import { ReviewCancelledError } from '../../src/review/retry.js';
 import { conversationModelRequest } from '../../src/conversation/plan.js';
 import { browserTargets, validateBrowserTargets, visibleTextPreset } from '../../src/conversation/verification.js';
 import { presetToTest } from '../../src/dynamic/autonomous/planner.js';
+import { documentedAreas, formatProjectCoverage } from '../../src/conversation/projectCoverage.js';
+import { newAutoTestSession, type AutoTestEntry } from '../../src/dynamic/autonomous/orchestrator.js';
 
 class MemoryStore implements ConversationStore {
   records = new Map<string, ConversationRequest>();
@@ -52,6 +54,43 @@ async function waitFor(store: MemoryStore, id: string, state: ConversationReques
 }
 
 describe('conversation request harness', () => {
+  it('uses the exact user-supplied Browser assertion after a clarification when the project inventory is the only current evidence', async () => {
+    const { deps, input, runtime, store } = fixture();
+    vi.mocked(deps.resolve).mockResolvedValue([{ id: 'project:project', text: '{"name":"Sample Shop"}', hash: 'project' }]);
+    vi.mocked(deps.plan)
+      .mockResolvedValueOnce({ action: 'clarify', reply: 'Which page should I open?', citations: [], scope: [] })
+      .mockResolvedValueOnce({ action: 'browser', executionIntent: 'custom_answer', reply: 'I’ll check the catalogue.', citations: [], scope: ['public/index.html'] });
+    await runtime.accept('project', { ...input, text: 'Check the catalogue in Browser.', mode: 'browser' }, deps);
+    const question = await waitFor(store, input.id, 'completed');
+    await runtime.answerQuestion(question, { revision: question.revision, questionId: question.pendingQuestionId!,
+      answer: { kind: 'custom', text: 'Open the signed-out home page and verify that it shows "Ceramic Mug".' } }, deps);
+    await vi.waitFor(() => expect(deps.execute).toHaveBeenCalledOnce());
+    const completed = await waitFor(store, input.id, 'completed');
+    expect(completed).toMatchObject({ action: 'browser', scope: [], questions: [{ answer: { kind: 'custom', automatic: false } }] });
+  });
+  it('compares documented scope with saved coverage without asking the provider to guess or starting a run', async () => {
+    const { input, runtime, deps, store } = fixture();
+    const areas = documentedAreas('## REQ-2 Product catalogue\n## REQ-3 Checkout\n## REQ-4 Order history');
+    const session = newAutoTestSession({ id: 'browser', projectId: 'project', ownerId: 'owner', folder: 'project' });
+    const catalogue: AutoTestEntry = { id: 'catalogue', name: 'Product names appear', goal: 'Check the catalogue', rationale: '',
+      requirementRef: 'REQ-2', sourceRefs: [], checks: [], startPath: '/', state: 'passed', runId: 'run',
+      checkResults: [{ checkId: 'name', criterionId: 'req-2', verdict: 'passed', observed: 'Ceramic Mug', reason: '', evidenceIds: [], checkedAt: session.createdAt }] };
+    session.tests = [catalogue, { ...catalogue, id: 'blocked', name: 'Orders load', requirementRef: 'REQ-4', state: 'blocked' },
+      { ...catalogue, id: 'unlinked', name: 'Homepage shows Ceramic Mug', requirementRef: null }];
+    deps.coverage = vi.fn().mockResolvedValue(formatProjectCoverage(areas, [session], 2, {
+      covered: 1, partial: 0, total: 2, missing: ['src/checkout.ts'],
+    }, [], false, false));
+    await runtime.accept('project', { ...input, text: "what scope I havent check yet" }, deps);
+    const saved = await waitFor(store, input.id, 'completed');
+    expect(saved).toMatchObject({ action: 'explain', replyFormat: 'markdown' });
+    expect(saved.reply).toContain('| Checkout (REQ-3) | — | No explicitly linked test. |');
+    expect(saved.reply).toContain('| Product catalogue (REQ-2) | Product names appear (passed) | — |');
+    expect(saved.reply).toContain('| Order history (REQ-4) | — | Orders load (blocked) |');
+    expect(saved.reply).toContain('- Homepage shows Ceramic Mug · Passed');
+    expect(saved.reply).toContain('src/checkout.ts');
+    expect(deps.plan).not.toHaveBeenCalled();
+    expect(deps.execute).not.toHaveBeenCalled();
+  });
   it.each([
     [null, 'The failed Browser assertion count is unavailable.'],
     [0, 'The Browser Check recorded 0 failed assertions.'],
@@ -98,10 +137,10 @@ describe('conversation request harness', () => {
     const text = 'In the Browser, verify that the signed-out Sample Shop catalogue shows "Ceramic Mug" on the home page.';
     vi.mocked(deps.resolve).mockResolvedValue([project]);
     vi.mocked(deps.plan).mockResolvedValue({ executionIntent: 'current_request', action: 'browser', reply: 'Check the catalogue on the home page.', citations: [project.id],
-      claims: [{ citation: project.id, excerpt: 'Sample Shop' }], scope: [], questionOptions: ['This extra choice is ignored'] });
+      claims: [{ citation: project.id, excerpt: 'Sample Shop' }], scope: ['public/index.html'], questionOptions: ['This extra choice is ignored'] });
     await runtime.accept('project', { ...input, mode: 'browser', permission: 'ask', text }, deps);
     const waiting = await waitFor(store, input.id, 'awaiting_permission');
-    expect(waiting).toMatchObject({ action: 'browser' });
+    expect(waiting).toMatchObject({ action: 'browser', scope: [] });
     expect(deps.execute).not.toHaveBeenCalled();
     await runtime.confirm(waiting, waiting.revision, deps);
     await waitFor(store, input.id, 'completed');
@@ -567,15 +606,16 @@ describe('conversation request harness', () => {
     },
   );
 
-  it('quotes the latest completed reply exactly without planning or loading evidence', async () => {
+  it.each([undefined, 'I finished the Code Review and saved 0 findings.'])('quotes the latest completed reply exactly, with execution outcome %s', async executionReply => {
     const { store, runtime, deps, input } = fixture();
     const priorId = randomUUID();
     const reply = '**Synthetic** earlier answer.';
     await store.create({ id: priorId, projectId: 'project', ownerId: deps.ownerId, revision: 0,
       createdAt: '2000-01-01T00:00:00.000Z', updatedAt: '2000-01-01T00:00:00.000Z', input, inputHash: 'fixture',
-      policyVersion: 'fixture', state: 'completed', action: 'explain', reply, replyFormat: 'markdown', events: [] });
+      policyVersion: 'fixture', state: 'completed', action: executionReply ? 'code' : 'explain', reply, executionReply, replyFormat: 'markdown', events: [] });
     await runtime.accept('project', { ...input, text: 'Quote your previous reply.' }, deps);
-    expect(await waitFor(store, input.id, 'completed')).toMatchObject({ action: 'explain', reply, replyFormat: 'markdown',
+    expect(await waitFor(store, input.id, 'completed')).toMatchObject({ action: 'explain', reply: executionReply ?? reply,
+      ...(executionReply ? {} : { replyFormat: 'markdown' }),
       citations: ['conversation:' + priorId], recall: { status: 'recalled', turns: 1 } });
     expect(deps.plan).not.toHaveBeenCalled();
     expect(deps.resolve).not.toHaveBeenCalled();

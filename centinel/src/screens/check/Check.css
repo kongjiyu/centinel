@@ -353,6 +353,7 @@
   z-index: 2;
 }
 .ck-follow-up-menu { max-height: min(320px, 35vh); }
+.ck-follow-up.is-attachment-menu-open { z-index: 4; }
 .ck-follow-up .ck-mode-select { margin-inline-start: auto; min-width: 0; }
 .ck-follow-up .ck-mode-changed { animation: ck-mode-confirmed 520ms var(--ease-standard); }
 @keyframes ck-mode-confirmed {

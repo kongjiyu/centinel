@@ -115,6 +115,17 @@ function fakes(options: { verdicts?: string[]; tests?: number; persistence?: boo
 }
 
 describe('Auto test orchestrator', () => {
+  it('preserves the saved Browser provider stop without retrying or admitting another test', async () => {
+    const fake = fakes({ verdicts: ['blocked'], tests: 2 });
+    const getRun = fake.deps.getRun;
+    const { PROVIDER_PAUSE_MESSAGES } = await import('../../src/review/providerPause.js');
+    fake.deps.getRun = async id => ({ ...await getRun(id), reason: PROVIDER_PAUSE_MESSAGES.billing_required, checks: [] });
+    const result = await runAutoTest(newAutoTestSession({ id: 'a'.repeat(36), projectId: PROJECT, ownerId: 'u', folder: '/repo', lanes: 1, suite: NO_SUITE }), fake.deps, new AbortController().signal);
+    expect(result.error).toEqual({ reason: 'provider_paused', message: PROVIDER_PAUSE_MESSAGES.billing_required });
+    expect(result.tests.map(test => test.state)).toEqual(['blocked', 'not_tested']);
+    expect(result.tests[0].firstAttempt).toBeUndefined();
+    expect(fake.runs.size).toBe(1);
+  });
   it('bounds cancellation recovery and admits no later tests when a child cannot confirm stopping', async () => {
     const fake = fakes({ persistence: true });
     let time = 0;

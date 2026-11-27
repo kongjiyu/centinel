@@ -171,3 +171,32 @@ Free-form project messages go through the provider's action selection in the cho
 An attached Library file can be explained independently of a saved Check or Problem. The service supplies versioned text, including text extracted from PDFs when available, and identifies incomplete excerpts. File-level citations support paraphrases without an exact quote. Saved Check evidence and execution retain exact supporting-evidence validation. Invalid choice lists fall back to an open question.
 
 Regression coverage exercises the original Browser wording, confirmation, the exact homepage text assertion, malformed options, and a paraphrase with a mismatched source excerpt. The frontend build, 57 frontend tests, 155 sidecar tests, sidecar type check and `git diff --check` passed. The tests use controlled provider responses. A fresh desktop run with the configured provider remains unverified.
+
+### Scope coverage and evidence cards, 27 November 2026
+
+The Sample Shop reset removed eight conversation turns, three Browser sessions and their linked runs, one Code Review, and four device-local Check cards. The reset verification matched the project, one repository source, 11 artifacts and 11 versions before and after. The native app displayed “No checks yet” before the fresh runs. Sample Shop history created during the retest was kept.
+
+| Feature | Acceptance criteria | Status | Risk flags |
+| --- | --- | --- | --- |
+| Default full Check | One Check launches both modes and preserves each lane’s results. | Both lanes saved results. | Code saved 19 findings with partial coverage. Browser saved eight passes, three failures, two blocked tests, and one test that did not run. |
+| Code Review | `Review src/products.js` runs a focused Review with no Browser child. | Passed on desktop. | One saved file and zero findings. |
+| Browser | The original signed-out Ceramic Mug request runs and records the actual assertion. | Passed on desktop after the scope fix. | Browser execution independently validates its page and required assertion. |
+| Saved Check explanation | An explicit `@` reference opens a named card with mode, objective, evidence, and the original Check action. | Passed on desktop. | Responsive fixture also verified the revised heading and table layout. |
+| Saved Problem explanation | Show recorded observations and keep any possible cause qualified when coverage is incomplete. | Passed on desktop. | The saved checkout explanation identifies incomplete Browser verification. Its possible cause remains a hypothesis. |
+| Continuity | A typed clarification resumes the original request. Repeating a completed execution reply uses the outcome the user saw. | Clarification resumed and the outcome was recalled on desktop. | The provider reported a spending or payment limit before the resumed Browser run produced an assertion verdict. |
+| Coverage question | Compare documented project scope with saved Browser results and version-matched Code Review manifests. | Passed on desktop for the original question. | The first reply found four requirement areas. The saved standalone catalogue assertion had no explicit requirement reference. |
+| Attached file explanation | Explain the attached `src/products.js` and format its source symbols. | Passed on desktop. | The reply listed the four products and two exported functions. |
+| Working indicator and Stop | Animate the ring while working. Stop the current turn from the composer. | Passed in the responsive fixture and native retest. | The indicator respects reduced motion. Cancelling kept the other in-progress Check running. |
+
+The evidence-card fixture exercised the production components at 1440×900, 1200×900, and 390×840. It verified the top-right navigation action, single-line Objective label, horizontal containment, and spinner animation. Screenshots are under `evidence/orin-sample-shop-2026-11-27/`.
+
+- Standalone Browser session `0b90a245-72d8-410b-b35d-47234b31e945` saved the original Ceramic Mug pass.
+- Default full Check used Browser session `344e3c05-75aa-460e-b3e8-0842f335593d` and Code Review `57ad3ba8-79d4-4f5f-85fb-5c154e712c8e`.
+- Scoped Code Review `5a72da29-db48-481e-8908-9b33f57c84d4` reached its completed `pending_approval` storage state.
+- Saved Check explanation `7f1aadf3-3726-445b-95d1-b678a760dae7` and Problem explanation `5b6b61ab-a8e1-43cf-8a03-fbf01b5cd9dd` completed without dispatching a check.
+- Composer cancellation ended turn `58313118-6a5e-4c6c-bf37-d2c508d71cb5`. The separate full Check remained active.
+- After the full Check, coverage turn `68b4f442-6ebe-482c-875d-5b2463886758` named `docs/requirements.md`, showed the saved Browser outcomes and blocked paths, and distinguished one file in a complete Review manifest from ten appearing only in the partial manifest.
+- Clarification turn `923d97a5-8b9b-4d78-bd6d-a8f91af21b09` resumed as Browser session `a13235ec-40af-433e-8a32-e5a33e8a590c` with the exact expected text `Origami Telescope`. The provider payment-limit stop is preserved in the saved run. A controlled regression verified the fix that surfaces this stop and prevents automatic retry or dispatch of queued tests.
+- After restarting the desktop, the exact scope question also listed the current-version files named by partial Review evidence. Repeating the previous Browser reply matched the saved text shown under its card.
+
+Verification passed for 75 targeted frontend tests, 120 targeted sidecar tests, the frontend production build, sidecar type checking, and `git diff --check`.

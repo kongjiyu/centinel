@@ -140,6 +140,8 @@ export type ConversationRequest = {
   state: 'accepted' | 'planning' | 'awaiting_permission' | 'running' | 'completed' | 'failed' | 'paused' | 'interrupted' | 'cancelled';
   action?: 'explain' | 'suggest' | 'code' | 'browser' | 'clarify';
   reply?: string;
+  /** User-facing outcome of completed execution. The original reply can describe the plan. */
+  executionReply?: string;
   explanation?: SavedConversationExplanation;
   replyFormat?: 'markdown';
   citations?: string[];

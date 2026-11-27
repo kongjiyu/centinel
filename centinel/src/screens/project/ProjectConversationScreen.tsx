@@ -29,7 +29,7 @@ import { ProjectCheckCard } from './ProjectCheckCard';
 import { ConversationTurn } from './ConversationTurn';
 import { BrowserWorkSection } from './CheckWorkActivity';
 import { ConversationMessage, copyConversationText, MessageTime } from './ConversationMessage';
-import { eligibleReplySource, type ProblemAttachment, readConversationDraft, replyExcerpt, conversationQuestionOptions, useConversationRequests, writeConversationDraft } from '../../check/conversation';
+import { eligibleReplySource, type ProblemAttachment, readConversationDraft, rememberAcknowledgedRequest, replyExcerpt, conversationQuestionOptions, useConversationRequests, writeConversationDraft } from '../../check/conversation';
 import type { ConversationRequest } from '../../check/conversationTypes';
 import { ConversationQuestion } from './ConversationQuestion';
 import { consumeConversationReturn } from '../../check/projectNavigation';
@@ -131,10 +131,10 @@ function IconAction({ icon, label, onClick, shape, pressed }: { icon: typeof Che
   );
 }
 
-function SessionTurn({ session, projectId, prefs, onChange, onRerun, onCancel, onNavigate, card }: {
+function SessionTurn({ session, projectId, prefs, onChange, onRerun, onNavigate, card }: {
   session: AutoTestSession; projectId: string; prefs: ReturnType<typeof useProjectPrefs>;
   card?: ReactNode;
-  onChange(ref: AutoTestRef & { name: string }): void; onRerun(ref: AutoTestRef & { name: string }): void; onCancel(id: string): void; onNavigate: Navigate;
+  onChange(ref: AutoTestRef & { name: string }): void; onRerun(ref: AutoTestRef & { name: string }): void; onNavigate: Navigate;
 }) {
   const active = isActive(session);
   const now = useTicker(active);
@@ -217,7 +217,6 @@ function SessionTurn({ session, projectId, prefs, onChange, onRerun, onCancel, o
           <span className="pc-copy-status" role="status">{copyStatus}</span>
         </footer>
         </div>}
-        {active && <button type="button" className="ck-link pc-stop" onClick={() => onCancel(session.id)}><Icon icon={X} />Stop</button>}
         {session.stage === 'cancelled' && !finished.length && <p className="pc-ai-text pc-sub"><Icon icon={Info} />Stopped.</p>}
         {session.dropped.length > 0 && !active && !session.tests.length && !session.reply && <p className="pc-ai-text pc-sub"><Icon icon={Info} />The proposed test was left out because ORIN could not check it safely.</p>}
       </section>
@@ -248,7 +247,13 @@ export function ProjectConversationScreen({ project, projects, onNavigate, pendi
   const [composerVersion, setComposerVersion] = useState(0);
   const [pending, setPending] = useState<Pending | null>(null);
   const [sending, setSending] = useState(false);
+  const [stopping, setStopping] = useState(false);
+  const [stopError, setStopError] = useState<string>();
   const [error, setError] = useState<string | null>(null);
+  const quoteTurn = (turnId: string) => {
+    setBase(null);
+    setReplySelection({ projectId: project.id, ownerId: historyOwner, turnId });
+  };
   const chatCardsRef = useRef<HTMLDivElement>(null);
   const [driveAttention, setDriveAttention] = useState<{ projectId: string; status: string } | null>(null);
   useEffect(() => {
@@ -586,6 +591,25 @@ export function ProjectConversationScreen({ project, projects, onNavigate, pendi
     ? ['accepted', 'planning', 'running'].includes(latestAction.request.state)
     : 'session' in latestAction ? isActive(latestAction.session)
       : 'check' in latestAction ? latestAction.check.phase !== 'done' && latestAction.check.phase !== 'failed' : false);
+  const stoppable = [...timeline].reverse().find(item => 'request' in item
+    ? owner === item.request.ownerId && ['accepted', 'planning', 'running'].includes(item.request.state)
+    : 'session' in item && owner === item.session.ownerId && isActive(item.session));
+  const stopWork = async () => {
+    if (!stoppable || stopping) return;
+    setStopping(true);
+    setStopError(undefined);
+    try {
+      if ('request' in stoppable) {
+        const updated = await api.cancelConversationRequest(project.id, stoppable.request.id);
+        if (updated?.ownerId === sessionStorage.getItem('centinel:supabase-user-id')) rememberAcknowledgedRequest(project.id, updated);
+      } else if ('session' in stoppable) {
+        await api.cancelAutoTest(project.id, stoppable.session.id);
+        await refresh();
+      }
+    } catch {
+      setStopError('ORIN could not stop this request. Try again.');
+    } finally { setStopping(false); }
+  };
   useEffect(() => {
     if (checkQuestion) chatCardsRef.current?.scrollIntoView?.({ block: 'start', inline: 'nearest' });
     if (checkQuestion) recommendedCheck.current?.focus({ preventScroll: true });
@@ -612,6 +636,7 @@ export function ProjectConversationScreen({ project, projects, onNavigate, pendi
         clearReplySelection, replySources, replySourcesLoaded: conversationRequests.loaded,
         replySelection: replySelection?.projectId === project.id && replySelection.ownerId === historyOwner ? replySelection : null,
         inputRef, sending, send, runFullCheck, savedChecks, onFocus: () => setSideChoice({ scope: panelScope, open: false }), onSent: jumpToLatest,
+        stop: stoppable ? { busy: stopping, run: () => void stopWork() } : undefined,
         question: pendingQuestion ? <ConversationQuestion request={pendingQuestion.request} question={'question' in pendingQuestion ? pendingQuestion.question : undefined}
           options={'options' in pendingQuestion ? pendingQuestion.options : undefined} deadlineAt={questionDeadlineAt} onAnswered={onQuestionAnswered} /> : null,
         jumpToLatest: awayFromBottom ? <button type="button" className="pc-jump-latest" aria-label="Jump to latest" title="Jump to latest" onClick={() => {
@@ -699,7 +724,8 @@ export function ProjectConversationScreen({ project, projects, onNavigate, pendi
               : 'request' in item ? <ConversationTurn key={item.key} anchorKey={item.key} request={item.request}
                 artifacts={artifacts}
                 executionCard={item.executionCard && (renderProgress => <ProjectCheckCard check={item.executionCard!} onNavigate={onNavigate} onOpen={openCheck}
-                  showOutcome={item.request.state === 'completed'} renderProgress={renderProgress} />)}
+                  showOutcome={item.request.state === 'completed'} savedOutcome={item.request.executionReply} renderProgress={renderProgress}
+                  onQuote={item.request.executionReply && replySources.has(item.request.id) ? () => quoteTurn(item.request.id) : undefined} />)}
                 activityCheckName={evidenceId => {
                   const referenced = checks.find(check => item.request.input.references.some(ref => !ref.findingId && !ref.testId
                     && (!ref.checkId || check.id === ref.checkId) && (!ref.reviewId || check.reviewId === ref.reviewId)
@@ -764,16 +790,12 @@ export function ProjectConversationScreen({ project, projects, onNavigate, pendi
                   toggleSide(true);
                 }}
                 replySourceExcerpt={item.request.replyTo?.status === 'resolved' ? replySources.get(item.request.replyTo.turnId) : undefined}
-                onQuote={replySources.has(item.request.id) ? () => {
-                  setBase(null);
-                  setReplySelection({ projectId: project.id, ownerId: historyOwner, turnId: item.request.id });
-                } : undefined} />
+                onQuote={replySources.has(item.request.id) ? () => quoteTurn(item.request.id) : undefined} />
               : 'session' in item
               ? <div key={item.key} className="pc-timeline-item" data-conversation-key={item.key}><SessionTurn session={item.session} projectId={project.id} prefs={prefs} onNavigate={onNavigate}
                   card={item.browserCard && <ProjectCheckCard check={item.browserCard} onNavigate={onNavigate} onOpen={openCheck} externalProgress />}
                   onChange={ref => { setBase(ref); inputRef.current?.focus(); }}
-                  onRerun={ref => submit({ rerun: [ref] })}
-                  onCancel={id => { void api.cancelAutoTest(project.id, id).then(() => refresh()).catch(() => undefined); }} />
+                  onRerun={ref => submit({ rerun: [ref] })} />
               </div>
               : <p key={item.key} className="pc-note" data-conversation-key={item.key}><Icon icon={Info} />{item.note.text}</p>)}
             {pending && <div className="pc-msg is-me">{'rerun' in pending ? `Run again: ${pending.rerun.map(item => item.name).join(', ')}` : pending.text}</div>}
@@ -790,6 +812,7 @@ export function ProjectConversationScreen({ project, projects, onNavigate, pendi
               </div>
             )}
             {error && <p className="pc-note"><Icon icon={Info} />{error}</p>}
+            {stopError && <p className="pc-note" role="status"><Icon icon={Info} />{stopError}</p>}
             <div ref={endRef} />
           </div>
 

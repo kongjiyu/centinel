@@ -17,6 +17,12 @@ export function asksForProjectStatus(text: string) {
   return /^(?:where (?:are )?we(?: at)?(?: now)?|(?:(?:what(?:'s| is) (?:the |our )?|show me the )?(?:current |project )?)status(?: now)?)[?.!\s]*$/i.test(text.trim());
 }
 
+export function asksForProjectCoverage(text: string) {
+  const question = text.trim().replace(/^please\s+/i, '');
+  return /^(?:(?:what|which)\b|(?:show|list|tell me)\b)/i.test(question)
+    && /\b(?:unchecked|coverage|(?:haven['’]?t|hasn['’]?t|weren['’]?t|not|never)\s+(?:(?:been|we|i|you)\s+){0,2}(?:check\w*|test\w*|cover\w*|verif\w*))\b/i.test(question);
+}
+
 export function requestsFullCheck(text: string) {
   return /^(?:(?:please|can you|could you|would you)\s+)*(?:run|start|conduct)\s+(?:(?:a|the)\s+full\s+check|both(?:\s+checks)?|code\s+(?:and|\+)\s+browser(?:\s+checks?)?)[.!?]?$/i.test(text.trim());
 }

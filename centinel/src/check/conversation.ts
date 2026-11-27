@@ -30,12 +30,18 @@ export function eligibleReplySource(request: ConversationRequest, projectId: str
   return request.projectId === projectId && request.ownerId === ownerId && request.state === 'completed'
     && typeof request.reply === 'string' && !!request.reply.trim() && request.reply.length <= 6000;
 }
-export function replyText(request: ConversationRequest) {
-  return (request.reply ?? '').trim()
-    .replace(/^#{1,6}\s+/gm, '').replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\s+/g, ' ').trim();
+function replyText(request: ConversationRequest) {
+  return (request.executionReply ?? request.reply ?? '').trim();
+}
+function isMarkdownReply(request: ConversationRequest) {
+  return request.executionReply === undefined && request.replyFormat === 'markdown';
 }
 export function replyExcerpt(request: ConversationRequest) {
-  const plain = replyText(request);
+  const text = replyText(request);
+  const plain = (isMarkdownReply(request) ? text.split(/\r?\n/, 1)[0]
+    .replace(/^\s*(?:#{1,6}|>|[-+*]|\d+\.)\s+/, '')
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/(\*\*|__|\*|_|~~|\x60)(\S(?:.*?\S)?)\1/g, '$2') : text).replace(/\s+/g, ' ').trim();
   return plain.length > 136 ? plain.slice(0, 135).trimEnd() + '…' : plain;
 }
 export async function loadConversationReplySource(projectId: string, turnId: string, ownerId: string | null) {
@@ -43,7 +49,7 @@ export async function loadConversationReplySource(projectId: string, turnId: str
   const saved = await api.conversationRequest(projectId, turnId);
   if (sessionStorage.getItem('centinel:supabase-user-id') !== ownerId || saved?.id !== turnId
     || !eligibleReplySource(saved, projectId, ownerId)) return null;
-  return { excerpt: replyExcerpt(saved), full: replyText(saved) };
+  return { excerpt: replyExcerpt(saved), full: replyText(saved), markdown: isMarkdownReply(saved) };
 }
 export function readConversationDraft(projectId: string, checkId?: string): ConversationDraft {
   try {

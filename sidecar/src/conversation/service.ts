@@ -5,7 +5,7 @@ import { DynamicContractError } from '../dynamic/types.js';
 import { browserTargets, clarifiedBrowserTarget } from './verification.js';
 import { compactCanonicalJson } from '../report/canonical.js';
 import { isSavedObjectiveOnlyQuestion, presentBrowserCoverage, presentCheckStatus, presentSavedSelection } from './savedExplanation.js';
-import { asksForProjectStatus, asksForUnscopedBrowserCheck, asksForUnscopedReview, conversationApproval, conversationQuestionOptions, isCodeReviewChoice, namedReviewScope } from './intent.js';
+import { asksForProjectCoverage, asksForProjectStatus, asksForUnscopedBrowserCheck, asksForUnscopedReview, conversationApproval, conversationQuestionOptions, isCodeReviewChoice, namedReviewScope } from './intent.js';
 import { resolveAttachmentNames } from './attachmentNames.js';
 import { ReviewCancelledError } from '../review/retry.js';
 
@@ -17,6 +17,7 @@ export type ConversationDeps = {
   store: ConversationStore;
   authorize(projectId: string): Promise<void>;
   resolve(projectId: string, references: ConversationReference[], signal: AbortSignal, text: string): Promise<Evidence[]>;
+  coverage?(projectId: string, signal: AbortSignal): Promise<string>;
   plan(record: ConversationRequest, evidence: Evidence[], signal: AbortSignal, earlierTurns: Evidence[]): Promise<unknown>;
   execute(record: ConversationRequest, signal: AbortSignal, checkpoint: (patch: Partial<ConversationRequest>) => Promise<void>): Promise<void>;
   cancel(record: ConversationRequest): Promise<void>;
@@ -102,9 +103,10 @@ async function recallEarlierTurns(record: ConversationRequest, store: Conversati
       const options = conversationQuestionOptions(row);
       if (row.pendingQuestionId || row.questions?.some(question => !question.answer) || options.length && row.selectedOption === undefined) continue;
       const checks = row.input.references.flatMap(ref => ref.checkId ? [{ id: ref.checkId, focus: ref.checkFocus }] : []);
-      const compacted = olderIds.has(row.id) && (row.input.text.length > 900 || row.reply.length > 900);
+      const reply = row.executionReply ?? row.reply;
+      const compacted = olderIds.has(row.id) && (row.input.text.length > 900 || reply.length > 900);
       const turn = { request: compacted && row.input.text.length > 900 ? excerpt(row.input.text) : row.input.text,
-        reply: compacted && row.reply.length > 900 ? excerpt(row.reply) : row.reply,
+        reply: compacted && reply.length > 900 ? excerpt(reply) : reply,
         ...(compacted ? { excerptsOnly: true } : {}), ...(checks.length ? { checks } : {}),
         ...(row.selectedOption !== undefined ? { selectedOption: options[row.selectedOption] } : {}),
         ...(row.questions?.length ? { clarifications: row.questions.map(question => ({ question: question.text,
@@ -170,7 +172,7 @@ class ConversationValidationError extends Error {
   constructor(readonly reason: NonNullable<ConversationRequest['validationReason']>, message: string) { super(message); }
 }
 
-export function validateConversationPlan(raw: unknown, evidence: Evidence[], mode: ConversationInput['mode'], earlierTurns: Evidence[] = []): ConversationPlan {
+export function validateConversationPlan(raw: unknown, evidence: Evidence[], mode: ConversationInput['mode'], earlierTurns: Evidence[] = [], browserTargetFromUser = false): ConversationPlan {
   const plan = raw as (ConversationPlan & { claims?: Array<{ citation: string; excerpt: string }> }) | null;
   const supported = [...evidence, ...earlierTurns];
   const ids = new Set(supported.map(item => item.id));
@@ -183,10 +185,11 @@ export function validateConversationPlan(raw: unknown, evidence: Evidence[], mod
   }
   const executable = plan.action === 'code' || plan.action === 'browser';
   const attachedFiles = new Set(evidence.filter(item => !executable && !item.unavailable && item.artifactId && item.id === 'artifact:' + item.artifactId).map(item => item.id));
-  if (executable && plan.scope.some(id => typeof id !== 'string' || !artifacts.has(id))) {
+  if (plan.action === 'code' && plan.scope.some(id => typeof id !== 'string' || !artifacts.has(id))) {
     throw new ConversationValidationError('scope_unbound', 'The proposed scope is not bound to supplied files.');
   }
-  if (supported.length && plan.action !== 'clarify' && !plan.citations.length) throw new ConversationValidationError('citation_missing', 'The response needs saved evidence references.');
+  const citesUserTarget = browserTargetFromUser && plan.action === 'browser' && !plan.citations.length;
+  if (supported.length && plan.action !== 'clarify' && !plan.citations.length && !citesUserTarget) throw new ConversationValidationError('citation_missing', 'The response needs saved evidence references.');
   if (plan.action !== 'clarify' && supported.length) {
     const claims = Array.isArray(plan.claims) ? plan.claims : [];
     const requiresQuote = plan.citations.filter(id => !attachedFiles.has(id));
@@ -209,7 +212,7 @@ export function validateConversationPlan(raw: unknown, evidence: Evidence[], mod
   }
   if (plan.action === 'code' && !plan.scope.length) throw new ConversationValidationError('scope_unbound', 'The Code Review plan needs a file scope.');
   if (['code', 'browser'].includes(plan.action) && evidence.some(item => item.unavailable)) throw new ConversationValidationError('evidence_unavailable', 'Required historical evidence is unavailable. Explain the evidence or choose a readable check.');
-  if (['code', 'browser'].includes(plan.action) && earlierTurns.length && !evidence.some(item => plan.citations.includes(item.id))) {
+  if (executable && earlierTurns.length && !citesUserTarget && !evidence.some(item => plan.citations.includes(item.id))) {
     throw new ConversationValidationError('current_evidence_required', 'Execution requires a citation to the evidence selected for this request.');
   }
   const proposedOptions = plan.questionOptions;
@@ -217,13 +220,13 @@ export function validateConversationPlan(raw: unknown, evidence: Evidence[], mod
     && proposedOptions.every(option => typeof option === 'string' && option.trim() && option.length <= 100 && !/[\r\n]/.test(option))
     && new Set(proposedOptions.map(option => option.trim().toLowerCase())).size === proposedOptions.length
     ? proposedOptions.map(option => option.trim()) : [];
-  return { action: plan.action, reply: plan.reply.trim(), ...(['explain', 'suggest'].includes(plan.action) && { replyFormat: 'markdown' as const }), citations: [...new Set(plan.citations)], scope: executable ? [...new Set(plan.scope)] : [],
+  return { action: plan.action, reply: plan.reply.trim(), ...(['explain', 'suggest'].includes(plan.action) && { replyFormat: 'markdown' as const }), citations: [...new Set(plan.citations)], scope: plan.action === 'code' ? [...new Set(plan.scope)] : [],
     ...(options.length ? { questionOptions: options } : {}) };
 }
 
-function validatePlanWithLiteralRecall(raw: unknown, record: ConversationRequest, evidence: Evidence[], earlierTurns: Evidence[]) {
+function validatePlanWithLiteralRecall(raw: unknown, record: ConversationRequest, evidence: Evidence[], earlierTurns: Evidence[], browserTargetFromUser: boolean) {
   try {
-    return validateConversationPlan(raw, evidence, record.input.mode, earlierTurns);
+    return validateConversationPlan(raw, evidence, record.input.mode, earlierTurns, browserTargetFromUser);
   } catch (error) {
     const plan = raw as Partial<ConversationPlan> | null;
     const previous = evidence.find(item => item.kind === 'prior_reply') ?? earlierTurns.at(-1);
@@ -254,10 +257,11 @@ async function quotePreviousReply(record: ConversationRequest, store: Conversati
   try {
     const [row] = await store.listEarlierTurns(record.projectId, record.ownerId, record.createdAt, 1);
     const acceptedAt = Date.parse(record.createdAt);
+    const reply = row?.executionReply ?? row?.reply;
     if (row && row.projectId === record.projectId && row.ownerId === record.ownerId && row.id !== record.id
       && row.state === 'completed' && Date.parse(row.createdAt) < acceptedAt && Date.parse(row.updatedAt) <= acceptedAt
-      && typeof row.reply === 'string' && row.reply.trim() && row.reply.length <= MAX_RECALLED_REPLY) {
-      return { action: 'explain', reply: row.reply, ...(row.replyFormat === 'markdown' && { replyFormat: 'markdown' as const }),
+      && typeof reply === 'string' && reply.trim() && reply.length <= MAX_RECALLED_REPLY) {
+      return { action: 'explain', reply, ...(!row.executionReply && row.replyFormat === 'markdown' && { replyFormat: 'markdown' as const }),
         citations: ['conversation:' + row.id], scope: [], replyOrigin: 'saved_recall',
         recall: { status: 'recalled', turns: 1 }, state: 'completed' };
     }
@@ -279,11 +283,12 @@ async function loadExplicitReply(record: ConversationRequest, store: Conversatio
   try {
     const row = await store.get(record.projectId, id);
     const acceptedAt = Date.parse(record.createdAt);
+    const reply = row?.executionReply ?? row?.reply;
     if (!row || row.id !== id || row.projectId !== record.projectId || row.ownerId !== record.ownerId
       || row.state !== 'completed' || !(Date.parse(row.createdAt) < acceptedAt && Date.parse(row.updatedAt) <= acceptedAt)
-      || typeof row.reply !== 'string' || !row.reply.trim() || row.reply.length > MAX_RECALLED_REPLY) return null;
-    return { evidence: { id: 'conversation:' + id, text: row.reply, hash: hash(row.reply), kind: 'prior_reply' },
-      ...(row.replyFormat === 'markdown' && { replyFormat: 'markdown' as const }) };
+      || typeof reply !== 'string' || !reply.trim() || reply.length > MAX_RECALLED_REPLY) return null;
+    return { evidence: { id: 'conversation:' + id, text: reply, hash: hash(reply), kind: 'prior_reply' },
+      ...(!row.executionReply && row.replyFormat === 'markdown' && { replyFormat: 'markdown' as const }) };
   } catch {
     return null;
   }
@@ -611,6 +616,14 @@ export class ConversationRuntime {
         await checkpoint({ state: 'completed', action: 'clarify', reply: 'Which behavior should I verify in the browser, and what should the page show when it works?' });
         return;
       }
+      if (!confirmed && !resumed && !record.input.replyToTurnId && !record.input.references.length
+        && deps.coverage && asksForProjectCoverage(record.input.text)) {
+        await checkpoint({ state: 'planning' });
+        failureStage = 'context';
+        const reply = await deps.coverage(record.projectId, signal);
+        await checkpoint({ state: 'completed', action: 'explain', reply, replyFormat: 'markdown', citations: [], scope: [] });
+        return;
+      }
       if (!confirmed && !resumed && !record.input.replyToTurnId && asksForProjectStatus(record.input.text)
         && record.input.references.length <= 1 && record.input.references.every(ref => !ref.artifactId && !ref.findingId && !ref.testId)) {
         const current = record.input.references.length ? await deps.resolve(record.projectId, record.input.references, signal, text) : [];
@@ -733,8 +746,14 @@ export class ConversationRuntime {
           plan = { action: 'clarify', reply: 'Do you want me to run a check? Tell me what to verify, or ask for an explanation.', citations: [], scope: [] };
         } else {
           try {
+            let browserTargetFromUser = false;
+            if (proposedAction === 'browser' && !record.input.references.length && !prior
+              && evidence.length === 1 && evidence[0].id === `project:${record.projectId}`) {
+              try { browserTargetFromUser = browserTargets(evidence, authorityText, clarifiedTarget).length === 1; }
+              catch { /* A prompt without an independent test target still needs evidence. */ }
+            }
             plan = namedReview && (namedReview.action === 'clarify' || proposedAction === 'code')
-              ? namedReview : validatePlanWithLiteralRecall(raw, record, evidence, earlierTurns);
+              ? namedReview : validatePlanWithLiteralRecall(raw, record, evidence, earlierTurns, browserTargetFromUser);
           } catch (error) {
             if (error instanceof ConversationValidationError) {
               validationReason = error.reason;
@@ -818,7 +837,8 @@ export class ConversationRuntime {
       try { await this.patch(record, { state: paused ? 'paused' : 'failed', failureStage,
         ...(validationReason ? { validationReason } : {}),
         ...(failureReason ? { failureReason } : {}),
-        error: paused ? 'The provider paused this request. Resume through a new request when available.'
+        error: paused ? (code === 'provider_paused' && record.action === 'browser' && error instanceof Error
+          ? error.message : 'The provider paused this request. Resume through a new request when available.')
           : missingReference ? 'An attached record is unavailable. Reattach the saved Check or problem and send a new message.'
           : error instanceof ConversationBrowserStartupError ? 'The app could not start. Inspect the saved Browser attempt or try again after the app starts.'
             : 'This request could not finish. Its saved evidence and child executions remain available.' }, deps); } catch { /* failed checkpoint remains nonterminal for interruption recovery */ }

@@ -14,6 +14,7 @@ import { openExternalUrl } from '../../utils/openExternalUrl';
 import { ConversationAttachment, type ConversationAttachmentKind } from '../check/ConversationAttachment';
 import { ConversationQuotePreview } from '../check/ConversationQuotePreview';
 import { checkWorkLabels, WorkRow, type CheckWorkBranches } from './CheckWorkActivity';
+import { Icon } from '../../components/Icon';
 
 const traceStages: ReadonlyMap<string, string> = new Map([
   ['accepted', 'Request saved'], ['planning', 'Planning started'], ['context_resolved', 'Context resolved'],
@@ -120,7 +121,6 @@ export function ConversationTurn({ request, onQuote, replySourceExcerpt, onOpenP
   }, [request.state]);
   const active = activeStates.has(request.state);
   useEffect(() => { setProgressOpen(false); }, [active]);
-  const actionable = active || request.state === 'awaiting_permission';
   const elapsed = (active ? now : Date.parse(request.updatedAt)) - Date.parse(request.createdAt);
   const namedActions = new Map<string, { icon: typeof FileSearch; text: ReactNode; label: string; order: number }>();
   const recordAction = (id: string, icon: typeof FileSearch, label: string, text: ReactNode = label, order = request.events.length) =>
@@ -170,11 +170,10 @@ export function ConversationTurn({ request, onQuote, replySourceExcerpt, onOpenP
     const timer = setTimeout(() => setCopyStatus(''), 1800);
     return () => clearTimeout(timer);
   }, [copyStatus]);
-  const act = async (cancel: boolean) => {
+  const confirm = async () => {
     setBusy(true);
     try {
-      const updated = cancel ? await api.cancelConversationRequest(request.projectId, request.id)
-        : await api.confirmConversationRequest(request.projectId, request.id, request.revision);
+      const updated = await api.confirmConversationRequest(request.projectId, request.id, request.revision);
       if (updated?.ownerId === sessionStorage.getItem('centinel:supabase-user-id')) rememberAcknowledgedRequest(request.projectId, updated);
       setError(null);
     } catch { setError('The request changed or could not be saved. Refresh and try again.'); }
@@ -239,7 +238,7 @@ export function ConversationTurn({ request, onQuote, replySourceExcerpt, onOpenP
   if (options.length && selected === undefined && !failure) return <div className="pc-turn" data-conversation-key={anchorKey}>{message}</div>;
   const progress = (work: CheckWorkBranches = {}, currentWork?: ReactNode) => {
     const progressSummary = <>
-        {active && <LoaderCircle size={15} className="ci-spin" aria-hidden="true" />}
+        {active && <Icon icon={LoaderCircle} className="ci-spin" />}
         <span>{active ? `Working for ${elapsedLabel(elapsed)}` : `Worked for ${elapsedLabel(elapsed)}`}</span>
         {active && !progressOpen && (currentWork || latestActivity) && <span className="pc-current-activity">{currentWork || latestActivity}</span>}
     </>;
@@ -317,9 +316,8 @@ export function ConversationTurn({ request, onQuote, replySourceExcerpt, onOpenP
       : !executionCard && request.state === 'awaiting_permission' && <p className="pc-label" role="status">Waiting for approval.</p>}
     {request.state === 'cancelled' && <p className="pc-label" role="status">This request was cancelled.</p>}
     {import.meta.env.DEV && import.meta.env.VITE_CENTINEL_HARNESS_TRACE === '1' && owner === request.ownerId && <HarnessTrace request={request} />}
-    {owner === request.ownerId && actionable && <div className="pc-actions">
-      {request.state === 'awaiting_permission' && <button type="button" className="ck-button is-small" disabled={busy} onClick={() => void act(false)}>{request.fallbackReason ? 'Run Code check' : 'Run this scope'}</button>}
-      <button type="button" className="ck-button is-small" disabled={busy} onClick={() => void act(true)}>Cancel</button>
+    {owner === request.ownerId && request.state === 'awaiting_permission' && <div className="pc-actions">
+      <button type="button" className="ck-button is-small" disabled={busy} onClick={() => void confirm()}>{request.fallbackReason ? 'Run Code check' : 'Run this scope'}</button>
     </div>}
     {copyStatus && <p className="pc-copy-status" role="status">{copyStatus}</p>}
     {error && <p role="alert">{error}</p>}

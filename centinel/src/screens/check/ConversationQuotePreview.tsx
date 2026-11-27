@@ -1,4 +1,6 @@
 import { useId, useRef, useState, type FocusEvent, type ReactNode } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { loadConversationReplySource } from '../../check/conversation';
 
 export function ConversationQuotePreview({ className, projectId, ownerId, turnId, preview, label, unavailableText,
@@ -14,7 +16,7 @@ export function ConversationQuotePreview({ className, projectId, ownerId, turnId
 }) {
   const tooltipId = useId();
   const sourceKey = JSON.stringify([projectId, ownerId, turnId]);
-  const [replyState, setReplyState] = useState<{ key: string; excerpt: string; full: string }>();
+  const [replyState, setReplyState] = useState<{ key: string } & NonNullable<Awaited<ReturnType<typeof loadConversationReplySource>>>>();
   const [loadingKey, setLoadingKey] = useState<string>();
   const [unavailableKey, setUnavailableKey] = useState<string>();
   const [revealed, setRevealed] = useState(false);
@@ -52,6 +54,12 @@ export function ConversationQuotePreview({ className, projectId, ownerId, turnId
     aria-describedby={tooltipId} onPointerEnter={load} onPointerLeave={() => setRevealed(false)}
     onFocus={load} onBlur={blur}>
     {children(preview ?? reply?.excerpt)}
-    <span id={tooltipId} className="pc-reply-tooltip" role="tooltip" tabIndex={0} aria-live={revealed ? 'polite' : undefined}>{tooltip}</span>
+    <div id={tooltipId} className={`pc-reply-tooltip${reply?.markdown ? ' pc-markdown' : ''}`} role="tooltip" tabIndex={0} aria-live={revealed ? 'polite' : undefined}>
+      {reply?.markdown ? <ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml disallowedElements={['img', 'input']} unwrapDisallowed
+        components={{
+          a: ({ children }) => <span>{children}</span>,
+          table: ({ children }) => <div className="pc-table-scroll"><table>{children}</table></div>,
+        }}>{reply.full}</ReactMarkdown> : tooltip}
+    </div>
   </div>;
 }

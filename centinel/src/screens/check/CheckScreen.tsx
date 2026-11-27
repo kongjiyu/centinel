@@ -211,7 +211,7 @@ function CheckInterruptionNotices({ check, data, onNavigate }: { check: CheckRec
 }
 
 /** The running check. embedded: shown inside the project side panel, without the screen's own frame (25 Nov 2026). */
-export function LiveView({ check, data, onNavigate, header, embedded = false, conversationProgress = false }: { check: CheckRecord; data: CheckData; onNavigate: Navigate; header?: React.ReactNode; embedded?: boolean; conversationProgress?: boolean }) {
+export function LiveView({ check, data, onNavigate, header, embedded = false, conversationProgress = false, stopInComposer = false }: { check: CheckRecord; data: CheckData; onNavigate: Navigate; header?: React.ReactNode; embedded?: boolean; conversationProgress?: boolean; stopInComposer?: boolean }) {
   const now = useNow(!conversationProgress);
   const [stopping, setStopping] = useState(false);
   const [stopError, setStopError] = useState<string | null>(null);
@@ -253,7 +253,7 @@ export function LiveView({ check, data, onNavigate, header, embedded = false, co
         <header className="ck-live-head">
           {!conversationProgress && (header || embedded ? <h2 className="ck-live-status">Checking <span className="ci-pair ck-elapsed"><Icon icon={Clock} /><span className="ci-text">{formatElapsed(now - Date.parse(check.createdAt))}</span></span></h2>
             : <h1 className="ck-title">Checking {check.title || check.projectName}<span className="ci-pair ck-elapsed"><Icon icon={Clock} /><span className="ci-text">{formatElapsed(now - Date.parse(check.createdAt))}</span></span></h1>)}
-          {check.phase === 'running' && (!conversationProgress || result.codeState === 'running' || result.browserState === 'running')
+          {!stopInComposer && check.phase === 'running' && (!conversationProgress || result.codeState === 'running' || result.browserState === 'running')
             && <button type="button" className="ck-button" onClick={() => void stop()} disabled={stopping}><Icon icon={Square} />{stopping ? 'Stopping…' : 'Stop'}</button>}
         </header>
         <StageStrip steps={liveSteps(check, data)} />

@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
-import { ArrowUp, Clock, ChevronDown, FileText, Folder, GitBranch, History, Search, Maximize2, Minimize2, Plus, Reply, SquareChartGantt, X } from 'lucide-react';
+import { ArrowUp, Clock, ChevronDown, FileText, Folder, GitBranch, History, Search, Maximize2, Minimize2, Plus, Reply, Square, SquareChartGantt, X } from 'lucide-react';
 import { api } from '../../api/client';
 import { problemCountTone, ProblemCountIcon } from '../../components/ProblemCountIcon';
 import { OverflowText } from '../../components/OverflowText';
@@ -48,6 +48,7 @@ type ConversationComposer = {
   inputRef: RefObject<HTMLTextAreaElement>;
   placeholder: string;
   sending: boolean;
+  stop?: { run(): void; busy: boolean };
   onFocus?(): void;
   send(request: StartCheckInput): void;
   runFullCheck?(message: string): boolean;
@@ -395,9 +396,9 @@ export function CheckFollowUp({ check, projects, onNavigate, available, library,
     {conversation?.question}
     {conversation?.jumpToLatest}
   </div>}
-  <form ref={composer} className={`ck-composer ck-follow-up${expanded ? ' is-expanded' : ''}`} onSubmit={async event => {
+  <form ref={composer} className={`ck-composer ck-follow-up${expanded ? ' is-expanded' : ''}${addOpen ? ' is-attachment-menu-open' : ''}`} onSubmit={async event => {
     event.preventDefault();
-    if (!canSend) return;
+    if (!canSend || conversation?.stop) return;
     const focus = draft.trim();
     if (conversation?.runFullCheck && !conversation.editing && !replyToTurnId && !attachedChecks.length && !attachedProblems.length
       && !documents.length && !sources.length && requestsFullCheck(focus)) {
@@ -570,7 +571,9 @@ export function CheckFollowUp({ check, projects, onNavigate, available, library,
         options={CHECK_MODES.map(option => ({ ...option, disabled: !hasFolder && (conversation ? option.value === 'both' : option.value !== 'code') }))}
         onChange={value => { setModeChangedByOrin(false); setMode(value as CheckMode); }} />
       {modeChangedByOrin && <span className="visually-hidden" role="status">ORIN changed Check mode to Code.</span>}
-      <button type="submit" aria-label={conversation ? "Send" : "Send follow-up"} className="ck-round ck-follow-up-send" disabled={!canSend}><Icon icon={ArrowUp} /></button>
+      {conversation?.stop ? <button type="button" aria-label="Stop ORIN" title="Stop ORIN" className="ck-round ck-follow-up-send"
+        disabled={conversation.stop.busy} onClick={conversation.stop.run}><Icon icon={Square} /></button>
+        : <button type="submit" aria-label={conversation ? "Send" : "Send follow-up"} className="ck-round ck-follow-up-send" disabled={!canSend}><Icon icon={ArrowUp} /></button>}
     </div>
     {addOpen && <div ref={addMenu} className="ck-menu ck-attachment-menu ck-follow-up-menu" role="dialog" aria-label="Add to check"
       onKeyDown={event => {

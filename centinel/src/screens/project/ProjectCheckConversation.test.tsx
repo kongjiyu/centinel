@@ -18,7 +18,7 @@ vi.mock('@tauri-apps/api/fs', () => ({ writeTextFile: vi.fn() }));
 vi.mock('../../api/client', () => ({ api: {
   autoTests: vi.fn(), getConnectedSourceStatus: vi.fn().mockResolvedValue({ connected: true, sources: [] }), autoTest: vi.fn(), listArtifacts: vi.fn(), getArtifactContent: vi.fn(), listStaticSessions: vi.fn(), listStaticFindings: vi.fn(),
   listRequirements: vi.fn(), listConnectedSources: vi.fn(), getStaticSession: vi.fn(), getReviewHarness: vi.fn(), conversationRequests: vi.fn(),
-  sendConversationRequest: vi.fn(), conversationRequest: vi.fn(), confirmConversationRequest: vi.fn(), answerConversationQuestion: vi.fn(), startAutoTest: vi.fn(), exportProjectReport: vi.fn(), getReviewTraceability: vi.fn(),
+  sendConversationRequest: vi.fn(), conversationRequest: vi.fn(), confirmConversationRequest: vi.fn(), cancelConversationRequest: vi.fn(), answerConversationQuestion: vi.fn(), startAutoTest: vi.fn(), exportProjectReport: vi.fn(), getReviewTraceability: vi.fn(),
 } }));
 const project: Project = { id: '11111111-1111-4111-8111-111111111111', name: 'Sample shop', description: '', workspacePath: '/shop', createdAt: '', updatedAt: '' };
 const reviewId = '22222222-2222-4222-8222-222222222222';
@@ -64,6 +64,26 @@ beforeEach(() => {
   vi.mocked(api.conversationRequest).mockRejectedValue(Object.assign(new Error('Conversation request unavailable.'), { status: 404 }));
   saveCheck({ id: 'check-one', projectId: project.id, projectName: project.name, title: 'Order Access', reviewId,
     createdAt: review.createdAt, updatedAt: review.updatedAt, mode: 'code', phase: 'done', documents: [], focus: 'Review orders', notes: [] });
+});
+
+it('moves Stop to the composer while ORIN works and keeps the draft through cancellation', async () => {
+  const id = '66666666-6666-4666-8666-666666666666';
+  const running = { ...accepted({ id, text: 'Explain the catalogue.', mode: 'browser', permission: 'auto', references: [] }), state: 'planning' } as const;
+  vi.mocked(api.conversationRequests).mockResolvedValue([running]);
+  vi.mocked(api.cancelConversationRequest).mockResolvedValue({ ...running, revision: 2, state: 'cancelled' });
+  const user = userEvent.setup();
+  render(<Workspace />);
+  await returnToConversation(user);
+  const stop = await screen.findByRole('button', { name: 'Stop ORIN' });
+  expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
+  expect(screen.getByText(/^Working for/).parentElement?.querySelector('.ci.ci-spin')).toBeInTheDocument();
+  const draft = screen.getByRole('textbox', { name: 'Message to ORIN' });
+  await user.type(draft, 'Keep this draft{Enter}');
+  expect(api.sendConversationRequest).not.toHaveBeenCalled();
+  await user.click(stop);
+  expect(api.cancelConversationRequest).toHaveBeenCalledWith(project.id, id);
+  expect(await screen.findByRole('button', { name: 'Send' })).toBeInTheDocument();
+  expect(draft).toHaveValue('Keep this draft');
 });
 
 it('opens an attached saved Check without a device-local Check index entry', async () => {

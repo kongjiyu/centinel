@@ -6,7 +6,7 @@ import type { InstallPlan, LaunchedApp, LaunchEvent } from './launcher.js';
 import { LaunchError } from './launcher.js';
 import { AUTO_TEST_PLAN_SCHEMA, AUTO_TEST_SYSTEM_PROMPT, buildPlanPrompt, MAX_REQUEST_TESTS, planReply, presetToTest, validatePlan, type AutoTest, type AutoTestControl, type AutoTestPreset, type AutoTestRequest, type DroppedTest } from './planner.js';
 import type { RepoDigest } from './repoDigest.js';
-import { reviewProviderPause } from '../../review/providerPause.js';
+import { PROVIDER_PAUSE_MESSAGES, reviewProviderPause } from '../../review/providerPause.js';
 import { unitState, type UnitSummary } from './unitTests.js';
 import { autoRepeatable } from './suite.js';
 import { explorationSummary, exploratoryTests, FULL_SUITE, smokeBlocksTesting, smokeResult, usabilitySummary, usabilityTest, type AutoTestKind, type AutoTestSuite, type ExplorationSummary, type SmokeResult, type UsabilitySummary } from './suite.js';
@@ -373,6 +373,10 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
           entry.state = verdictState(run);
           entry.reason = run.reason;
           entry.checkResults = run.checks;
+          // The Browser runner persists the canonical pause message from structured provider metadata.
+          // Match that exact message to carry the stop across the saved run boundary.
+          const pause = run.state === 'blocked' && Object.entries(PROVIDER_PAUSE_MESSAGES).find(([, message]) => message === run.reason);
+          if (pause) admissionError = { code: pause[0] };
           if (entry.kind === 'exploratory') entry.exploration = explorationSummary(run.exploration, test.controls.map(control => control.selector));
           if (entry.kind === 'usability') {
             entry.usability = usabilitySummary(run.usability);
@@ -385,7 +389,7 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
             try {
               entry.explanation = await deps.explainFailure({ test: entry, run, excerpts: excerptsFor(entry, digest), signal });
             } catch (error) {
-              if (reviewProviderPause(error)) { admissionError = error; throw error; }
+              if (reviewProviderPause(error)) admissionError = error;
               entry.explanation = null;
             }
           }
@@ -452,6 +456,12 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
     } else {
       session.stage = 'failed';
       const pause = reviewProviderPause(error);
+      if (pause) {
+        for (const entry of session.tests) if (entry.state === 'queued') {
+          entry.state = 'not_tested';
+          entry.reason = 'This test did not start before the provider paused the Check.';
+        }
+      }
       session.error = pause ? { reason: 'provider_paused', message: pause.message } : error instanceof LaunchError
         ? { reason: error.reason, message: error.message, ...(error.logs ? { log: error.logs.slice(-4000) } : {}) }
         : { reason: 'internal', message: error instanceof Error ? error.message.slice(0, 500) : 'Auto test failed.' };

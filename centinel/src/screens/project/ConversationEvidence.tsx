@@ -1,5 +1,5 @@
 import { Fragment } from 'react';
-import { ArrowUpRight, SquareChartGantt } from 'lucide-react';
+import { ArrowUpRight } from 'lucide-react';
 import { Icon } from '../../components/Icon';
 import type { SavedConversationExplanation } from '../../check/conversationTypes';
 import { InlineText } from '../check/CheckScreen';
@@ -34,8 +34,8 @@ export function ConversationEvidence({ explanation, projectId, onOpenProblem }: 
     return <section key={section.evidenceId ?? index} className="pc-card pc-check-card pc-saved-check" aria-label={`Check ${section.title}`}>
       <header className="pc-check-card-heading">
         <div className="pc-check-card-title">
-          <div className="pc-check-card-name"><h2><Icon icon={SquareChartGantt} />{section.title}</h2></div>
-          <p>{mode}</p>
+          <div className="pc-check-card-name"><h2>{section.title}</h2></div>
+          <p>{mode}{check.mode !== 'both' && (code?.status || browser?.status) && <> · {resultLabel((code?.status || browser?.status)!)}</>}</p>
         </div>
         {onOpenProblem && section.evidenceId && <button type="button" className="ck-button is-small pc-saved-open-original"
           aria-label="Open original Check" title="Open original Check" onClick={() => onOpenProblem(section.evidenceId!)}><Icon icon={ArrowUpRight} /></button>}
@@ -47,8 +47,6 @@ export function ConversationEvidence({ explanation, projectId, onOpenProblem }: 
         {code?.requirementsUnavailable ? <div><dt>Requirements</dt><dd>Unavailable</dd></div>
           : code?.requirements && !code.requirements.length ? <div><dt>Requirements</dt><dd>No requirements provided</dd></div> : null}
       </dl>
-      {code?.status && <p className="pc-label">Code · {resultLabel(code.status)}</p>}
-      {browser?.status && <p className="pc-label">Browser · {resultLabel(browser.status)}</p>}
       {(code?.coverageIncomplete || section.limitations?.includes('Some Code coverage is incomplete.') || section.limitations?.includes('Some Code coverage remains unchecked.')) && <p className="pc-label">Some Code coverage remains unchecked.</p>}
       {browserCoverageNote && <p className="pc-label">{browserCoverageNote}</p>}
       <div className="pc-check-details">
@@ -63,10 +61,10 @@ export function ConversationEvidence({ explanation, projectId, onOpenProblem }: 
       </div>}
 
       {code && <section className="pc-saved-group" aria-label="Found in code">
-        <h4>Found in code</h4>
+        <h3>Code findings</h3>
         {!!code.scopeMode && <p className="pc-ov-meta"><span>Requested scope mode: {code.scopeMode === 'full' ? 'Full' : 'Focused'}</span>
           {code.sourceCount !== null && code.sourceCount !== undefined && <span>Files in saved manifest: {code.sourceCount}</span>}</p>}
-        {code.status && <p className="pc-ov-meta"><span>Saved Review status: {resultLabel(code.status)}</span></p>}
+        {check.mode === 'both' && code.status && <p className="pc-ov-meta">{resultLabel(code.status)}</p>}
         {code.summary && <p><InlineText text={code.summary} /></p>}
         {!!code.problems?.length && <div className="pc-ov-issues">
           {code.problems.map((problem, problemIndex) => <SavedProjectProblem key={problem.findingId ?? problemIndex} problem={problem} projectId={projectId} initiallyOpen={false} />)}
@@ -108,7 +106,8 @@ export function ConversationEvidence({ explanation, projectId, onOpenProblem }: 
       </section>}
 
       {browser && <section className="pc-saved-group" aria-label="Proven in the browser">
-        <h4>Browser tests</h4>
+        <h3>Browser tests</h3>
+        {check.mode === 'both' && browser.status && <p className="pc-ov-meta">{resultLabel(browser.status)}</p>}
         <div className="pc-table-scroll"><table aria-label="Saved Browser measurements"><tbody>
           <tr><th scope="row">Failed Browser assertions</th><td>{browser.failedAssertionCount === null || browser.failedAssertionCount === undefined ? 'Unavailable' : `${browser.failedAssertionCount}${browser.assertionCountPartial ? ' · partial count' : ''}`}</td></tr>
           {browser.passedTestCount !== null && browser.passedTestCount !== undefined && <tr><th scope="row">Passed Browser tests</th><td>{browser.passedTestCount}</td></tr>}
