@@ -127,6 +127,7 @@ function bearerClient(accessToken: string): SupabaseClient {
         lte: () => query,
         order: () => query,
         limit: () => query,
+        abortSignal: () => query,
         range: (start: number, end: number) => { selectedRange = [start, end]; return query; },
         update: (value: Record<string, unknown>) => { updatePatch = value; return query; },
         insert: (value: Record<string, unknown>) => {
